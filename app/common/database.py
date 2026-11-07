@@ -11,6 +11,8 @@ class Database:
         with self.connect() as con:
             con.executescript('''
                 PRAGMA journal_mode=WAL;
+                CREATE TABLE IF NOT EXISTS folders (
+                    id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE);
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS documents (
@@ -77,3 +79,20 @@ class Database:
         table = self._table(table)
         with self.connect() as con:
             con.execute(f'DELETE FROM {table} WHERE id=?', (item_id,))
+
+    def folders(self):
+        with self.connect() as con:
+            return [dict(row) for row in con.execute('SELECT id, path FROM folders ORDER BY path')]
+
+    def add_folder(self, path):
+        if not path.strip():
+            raise ValueError('폴더 경로를 입력하세요.')
+        folder = Path(path.strip()).expanduser().resolve(strict=True)
+        if not folder.is_dir():
+            raise ValueError('폴더 경로를 선택하세요.')
+        with self.connect() as con:
+            con.execute('INSERT OR IGNORE INTO folders(path) VALUES (?)', (str(folder),))
+
+    def remove_folder(self, folder_id):
+        with self.connect() as con:
+            con.execute('DELETE FROM folders WHERE id=?', (folder_id,))

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FDL version="1.5">
+  <Form id="Hello" width="640" height="480" titletext="KJA_BOARD Demo">
+    <Layouts><Layout><Static id="message" text="KJA_BOARD" left="24" top="24" width="300" height="40"/></Layout></Layouts>
+  </Form>
+</FDL>

@@ -70,3 +70,32 @@ def test_ado_wiql_batch_and_error():
     assert seen[0].url.path == '/tfs/Collection/My Project/_apis/wit/wiql'
     assert seen[0].url.params['api-version'] == '7.1'
     assert seen[0].headers['authorization'] == 'Basic ' + base64.b64encode(b':secret').decode()
+
+
+def test_local_folder_library(tmp_path):
+    from app.common.local_library import markdown_files
+    root = tmp_path / 'docs'
+    nested = root / 'nested'
+    nested.mkdir(parents=True)
+    (root / 'one.md').write_text('# One', encoding='utf-8')
+    (nested / 'two.MD').write_text('# Two', encoding='utf-8')
+    (root / 'ignore.txt').write_text('ignore', encoding='utf-8')
+    database = Database(str(tmp_path / 'folders.db'))
+    database.add_folder(str(root))
+    database.add_folder(str(root / '.'))
+    restored = Database(str(tmp_path / 'folders.db'))
+    assert len(restored.folders()) == 1
+    assert [p.name for p in markdown_files(restored.folders()[0]['path'])] == ['one.md']
+    with pytest.raises(ValueError):
+        restored.add_folder('')
+    with pytest.raises(ValueError):
+        restored.add_folder(str(root / 'one.md'))
+    restored.remove_folder(restored.folders()[0]['id'])
+    assert restored.folders() == []
+    assert (root / 'one.md').exists()
+
+
+def test_document_index_ignores_metadata_and_code():
+    from app.common.document_index import headings
+    source = '---\ntitle: example\n---\n# First\n```python\n## Not a heading\n```\n## Second\n### Third ###\n'
+    assert headings(source) == [(1, 'First', 4), (2, 'Second', 8), (3, 'Third', 9)]
