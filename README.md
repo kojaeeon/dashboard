@@ -21,7 +21,7 @@ python -m app.main
 
 - **MD 보기**: 문서 생성·편집·저장·삭제, UTF-8 MD 불러오기(2MB), 다운로드, Mermaid 포함 미리보기.
 - **Work**: 작업 추가·수정·삭제, 할 일/진행 중/완료 상태와 메모 관리. 업무 작업 보드를 제공합니다. UI 테스트는 별도 UI_TEST 메뉴에서 실행합니다.
-- **ADO WIQL**: Work 하단에서 Flat WIQL 실행 및 Work Item 조회(화면 최대 200건).
+- **ADO WIQL**: Work 하단에서 Flat WIQL 실행 및 공통 AG Grid로 동적 컬럼 표시(화면 최대 200건).
 - 화면 테마(light/dark)와 Mermaid 테마(default/dark/forest/neutral/base)는 별도로 선택하고 SQLite에 저장합니다. MD 수정 후 '미리보기 갱신'을 누르세요.
 
 ## 공통 구조
@@ -179,3 +179,40 @@ javac -d examples/deploy-demo/target/classes examples/deploy-demo/src/main/java/
 `java`는 Java 소스, `class`는 컴파일된 클래스 유형입니다. 기본 배포는 class/sql/js/xfdl을 선택합니다.
 **배포 타깃 루트**는 화면에서도 수정할 수 있으며, 모든 파일과 유형의 target은 그 루트 기준 상대 경로입니다.
 예: target_root `/apps/myapp` + target `js/hello.js` → `/apps/myapp/js/hello.js`. 계획에 상대 경로와 실제 경로를 함께 표시합니다.
+
+
+## 공통 그리드 · WIQL 결과
+
+`app/common/grid.py`의 `GridColumn`, `CommonGrid`를 여러 화면에서 재사용합니다.
+데이터 조회는 호출하는 화면이 담당하며, 공통 그리드는 표시와 사용자 조작을 담당합니다.
+
+```python
+from app.common.grid import CommonGrid, GridColumn
+
+grid = CommonGrid(
+    grid_id='tasks',
+    columns=[
+        GridColumn('id', 'ID', width=100, type='number'),
+        GridColumn('title', '제목', width=400),
+    ],
+    selection='multiple',  # 또는 single
+    on_row_double_click=lambda row: print(row),
+)
+grid.set_rows([{'id': 1, 'title': '정기점검 화면 개발'}])
+selected = await grid.get_selected_rows()  # async 이벤트 함수 안에서 호출
+```
+
+- 정렬, 컬럼별 필터, 결과 내 검색, 페이지 이동, 컬럼 이동·너비 조절을 지원합니다.
+- 체크박스 행 선택, 선택 건수, 선택 해제, 필터 초기화, CSV 다운로드를 제공합니다.
+- CSV는 현재 필터·정렬을 반영한 전체 페이지를 내보냅니다. 선택한 행만 내보내는 방식은 아닙니다.
+- CSV의 수식으로 해석될 수 있는 문자열 앞에는 작은따옴표를 붙입니다.
+- `on_row_click`, `on_row_double_click` 콜백에는 행 데이터 dict를 전달합니다. 비동기 콜백도 지원합니다.
+- `set_columns(columns)`는 컬럼을 교체하고 기존 데이터를 지웁니다. 이어서 `set_rows(rows)`를 호출하세요.
+- `clear()`는 행만 지웁니다. 편집과 SQLite 컬럼 설정 저장은 포함하지 않습니다.
+
+WIQL 화면은 응답의 `columns`에서 `referenceName`, `name`과 순서를 읽습니다.
+`SELECT`에 사용자 정의 필드를 추가하면 해당 컬럼도 표시합니다.
+상세 API에는 선택 필드와 WIQL 응답의 `asOf`를 전달하고, WIQL의 ID 순서로 행을 배치합니다.
+사용자 객체는 표시명으로, 설명·인수 조건·재현 단계 HTML은 일반 텍스트로 표시합니다.
+행을 더블클릭하면 조회한 컬럼의 상세 내용이 열립니다.
+Flat 쿼리만 지원하며, 최대 200건 표시 제한과 환경변수 기반 ADO 설정은 유지합니다.

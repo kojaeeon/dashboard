@@ -55,10 +55,15 @@ class AdoClient:
     async def query_wiql(self, query):
         return await self.request('POST', 'wit/wiql', json={'query': query})
 
-    async def get_work_items(self, ids):
+    async def get_work_items(self, ids, *, fields=None, as_of=None):
         items = []
         for start in range(0, len(ids), 200):
-            result = await self.request('POST', 'wit/workitemsbatch', json={'ids': ids[start:start + 200]})
+            body = {'ids': ids[start:start + 200]}
+            if fields is not None:
+                body['fields'] = fields
+            if as_of is not None:
+                body['asOf'] = as_of
+            result = await self.request('POST', 'wit/workitemsbatch', json=body)
             items.extend(result.get('value', []))
         return items
 
@@ -70,3 +75,4 @@ class AdoClient:
             'baseVersion': base, 'baseVersionType': 'commit',
             'targetVersion': target, 'targetVersionType': 'commit',
         })
+

@@ -2,6 +2,8 @@
 from nicegui import ui
 from app.common.database import Database
 from app.common.ado_client import AdoClient
+from app.common.grid import CommonGrid
+from app.common.wiql import wiql_columns, wiql_rows
 
 
 def render(db: Database):
@@ -52,7 +54,19 @@ def render(db: Database):
     with ui.expansion('ADO · WIQL 조회', icon='cloud').classes('w-full'):
         ui.label('환경변수의 ADO 설정으로 조회합니다. PAT는 화면과 DB에 저장하지 않습니다.')
         wiql = ui.textarea('WIQL', value="SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project ORDER BY [System.ChangedDate] DESC").classes('w-full')
-        result_area = ui.column().classes('w-full')
+        def show_detail(row):
+            with ui.dialog() as dialog, ui.card().classes('w-full max-w-3xl'):
+                ui.label(f"작업 항목 #{row.get('System.Id', '')}").classes('text-lg font-bold')
+                for column in grid.columns:
+                    ui.label(column.label).classes('font-semibold')
+                    value = row.get(column.key)
+                    ui.label('' if value is None else str(value)).classes('whitespace-pre-wrap break-all')
+                ui.button('닫기', on_click=dialog.close)
+            dialog.open()
+
+        grid = CommonGrid('wiql_result', on_row_double_click=show_detail)
+        ui.label('컬럼 제목에서 정렬·필터를 사용할 수 있습니다. 행을 더블클릭하면 상세 내용을 표시합니다.').classes('text-sm text-gray-500')
+        result_status = ui.label('')
         async def query():
             query_button.disable()
             try:
@@ -61,15 +75,18 @@ def render(db: Database):
                     if result.get('queryType') != 'flat':
                         raise ValueError('현재 화면은 Flat WIQL 쿼리를 지원합니다.')
                     ids = [w['id'] for w in result.get('workItems', [])][:200]
-                    items = await client.get_work_items(ids)
-                result_area.clear()
-                with result_area:
-                    ui.label(f'{len(items)}건 표시 (최대 200건)')
-                    ui.table(columns=[{'name': k, 'label': k, 'field': k, 'sortable': True} for k in ('id', 'title', 'state')], rows=[{
-                        'id': w['id'], 'title': w['fields'].get('System.Title', ''),
-                        'state': w['fields'].get('System.State', '')} for w in items], pagination=10).classes('w-full')
+                    columns = wiql_columns(result)
+                    items = await client.get_work_items(
+                        ids, fields=[c.key for c in columns], as_of=result.get('asOf'))
+                grid.reset_filters()
+                grid.set_columns(columns)
+                by_id = {item['id']: item for item in items}
+                grid.set_rows(wiql_rows([by_id[item_id] for item_id in ids if item_id in by_id]))
+                total = len(result.get('workItems', []))
+                result_status.set_text(f'{total}건 중 {len(items)}건 표시 (최대 200건)')
             except (ValueError, RuntimeError) as exc:
                 ui.notify(str(exc), type='negative')
             finally:
                 query_button.enable()
         query_button = ui.button('WIQL 실행', icon='play_arrow', on_click=query)
+
