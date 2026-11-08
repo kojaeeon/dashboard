@@ -5,7 +5,7 @@ from app.common.database import Database
 from app.common.markdown_viewer import MermaidRenderer
 from app.menu import build_menu
 from app.theme import apply_theme
-from app.pages import markdown, work, ui_test, deploy_backup
+from app.pages import markdown, work, ui_test, deploy_backup, schedule
 
 load_dotenv()
 db = Database(os.getenv('DASHBOARD_DB_PATH', 'data/dashboard.db'))
@@ -16,7 +16,7 @@ def index():
     apply_theme()
     handlers = {}
     theme = db.setting('mermaid_theme', 'default')
-    tabs, md_tab, work_tab, test_tab, deploy_tab = build_menu(
+    tabs, md_tab, work_tab, test_tab, deploy_tab, schedule_tab = build_menu(
         app_theme=db.setting('app_theme', 'light'),
         mermaid_theme=theme if theme in MermaidRenderer.THEMES else 'default',
         mermaid_themes=MermaidRenderer.THEMES,
@@ -28,6 +28,8 @@ def index():
             handlers.update(markdown.render(db))
         with ui.tab_panel(work_tab).classes('p-0'):
             work.render(db)
+        with ui.tab_panel(schedule_tab).classes('p-0'):
+            schedule.render(db)
         with ui.tab_panel(test_tab).classes('p-0'):
             ui_test.render(db)
         with ui.tab_panel(deploy_tab).classes('p-0'):
@@ -41,3 +43,4 @@ def run():
 
 if __name__ == '__main__':
     run()
+

@@ -18,6 +18,8 @@ def build_menu(*, app_theme, mermaid_theme, mermaid_themes,
     with ui.tabs().classes('studio-navigation w-full justify-start') as tabs:
         md_tab = ui.tab('MD 보기', icon='description')
         work_tab = ui.tab('Work', icon='task_alt')
+        schedule_tab = ui.tab('일정', icon='calendar_month')
         test_tab = ui.tab('UI_TEST', icon='science')
         deploy_tab = ui.tab('배포/백업', icon='drive_file_move')
-    return tabs, md_tab, work_tab, test_tab, deploy_tab
+    return tabs, md_tab, work_tab, test_tab, deploy_tab, schedule_tab
+

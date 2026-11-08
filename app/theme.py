@@ -90,6 +90,16 @@ def apply_theme():
         .document-jump-widget .q-btn:focus-visible { outline: 2px solid #b89a60; outline-offset: 2px; }
         .nicegui-content { padding-right: 82px; }
         .text-gray-500 { color: #8e958c !important; }
+        .schedule-calendar { --fc-border-color: #b89a6040;
+            --fc-today-bg-color: #b89a601a; --fc-neutral-bg-color: #b89a6012;
+            --fc-button-bg-color: #51786b; --fc-button-border-color: #51786b;
+            --fc-button-hover-bg-color: #3c5d52; --fc-button-hover-border-color: #3c5d52;
+            --fc-button-active-bg-color: #304a41; --fc-button-active-border-color: #304a41; }
+        .body--dark .schedule-calendar { --fc-page-bg-color: #1b201c;
+            --fc-neutral-text-color: #c7cbbf; --fc-list-event-hover-bg-color: #303a32; }
+        .schedule-calendar .fc-event { cursor: pointer; }
+        .schedule-calendar .fc-toolbar { gap: 12px; flex-wrap: wrap; }
+        .schedule-calendar .fc-toolbar-title { font-size: 1.5rem; }
         @media(max-width: 768px) {
             .nicegui-content { padding: 20px 72px 40px 16px; }
             .studio-header { padding: 18px 20px; gap: 20px; }
@@ -98,3 +108,4 @@ def apply_theme():
             .q-card { padding: 18px; }
         }
     ''')
+

@@ -23,3 +23,7 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 main_file = ""
+
+
+[tool.setuptools.package-data]
+app = ["common/*.js", "common/calendar_vendor/*.js", "common/calendar_vendor/*LICENSE*", "common/calendar_vendor/README.md"]
