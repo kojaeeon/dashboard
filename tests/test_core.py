@@ -48,13 +48,13 @@ def test_ado_env(monkeypatch):
     assert 'secret' not in repr(config)
 
 
-def test_ado_wiql_batch_and_error():
+def test_ado_wiql_workitems_and_error():
     seen = []
     def handle(request):
         seen.append(request)
         if request.url.path.endswith('/wiql'):
             return httpx.Response(200, json={'queryType': 'flat', 'workItems': [{'id': 42}]})
-        if request.url.path.endswith('/workitemsbatch'):
+        if request.url.path.endswith('/workitems'):
             return httpx.Response(200, json={'value': [{'id': 42, 'fields': {}}]})
         return httpx.Response(401, json={'message': 'private response'})
     async def run():

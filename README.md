@@ -21,7 +21,7 @@ python -m app.main
 
 - **MD 보기**: 문서 생성·편집·저장·삭제, UTF-8 MD 불러오기(2MB), 다운로드, Mermaid 포함 미리보기.
 - **Work**: 작업 추가·수정·삭제, 할 일/진행 중/완료 상태와 메모 관리. 업무 작업 보드를 제공합니다. UI 테스트는 별도 UI_TEST 메뉴에서 실행합니다.
-- **ADO WIQL**: Work 하단에서 Flat WIQL 실행 및 공통 AG Grid로 동적 컬럼 표시(화면 최대 200건).
+- **ADO WIQL**: Work 작업 보드 위의 접기/펼치기 영역에서 Flat WIQL 실행 및 공통 AG Grid로 동적 컬럼 표시(화면 최대 200건).
 - 화면 테마(light/dark)와 Mermaid 테마(default/dark/forest/neutral/base)는 별도로 선택하고 SQLite에 저장합니다. MD 수정 후 '미리보기 갱신'을 누르세요.
 
 ## 공통 구조
@@ -212,7 +212,8 @@ selected = await grid.get_selected_rows()  # async 이벤트 함수 안에서 �
 
 WIQL 화면은 응답의 `columns`에서 `referenceName`, `name`과 순서를 읽습니다.
 `SELECT`에 사용자 정의 필드를 추가하면 해당 컬럼도 표시합니다.
-상세 API에는 선택 필드와 WIQL 응답의 `asOf`를 전달하고, WIQL의 ID 순서로 행을 배치합니다.
+기본은 접힌 상태이며 헤더 클릭으로 입력창과 결과를 펼칩니다. 실행 버튼은 펼친 영역 오른쪽 위에 있습니다.
+상세 조회는 `GET wit/workitems?ids=...`를 사용합니다. 선택 필드와 WIQL 응답의 `asOf`를 전달하고, WIQL의 ID 순서로 행을 배치합니다.
 사용자 객체는 표시명으로, 설명·인수 조건·재현 단계 HTML은 일반 텍스트로 표시합니다.
 행을 더블클릭하면 조회한 컬럼의 상세 내용이 열립니다.
 Flat 쿼리만 지원하며, 최대 200건 표시 제한과 환경변수 기반 ADO 설정은 유지합니다.

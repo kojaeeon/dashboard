@@ -58,12 +58,12 @@ class AdoClient:
     async def get_work_items(self, ids, *, fields=None, as_of=None):
         items = []
         for start in range(0, len(ids), 200):
-            body = {'ids': ids[start:start + 200]}
+            params = {'ids': ','.join(str(item_id) for item_id in ids[start:start + 200])}
             if fields is not None:
-                body['fields'] = fields
+                params['fields'] = ','.join(fields)
             if as_of is not None:
-                body['asOf'] = as_of
-            result = await self.request('POST', 'wit/workitemsbatch', json=body)
+                params['asOf'] = as_of
+            result = await self.request('GET', 'wit/workitems', params=params)
             items.extend(result.get('value', []))
         return items
 

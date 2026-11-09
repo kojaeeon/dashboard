@@ -1,5 +1,3 @@
-import json
-
 import httpx
 import pytest
 from nicegui import ui
@@ -27,20 +25,24 @@ def test_wiql_metadata_and_values():
 
 
 @pytest.mark.asyncio
-async def test_batch_uses_selected_fields_and_snapshot():
-    bodies = []
+async def test_workitems_uses_selected_fields_and_snapshot():
+    requests = []
 
     def handle(request):
-        bodies.append(json.loads(request.content))
+        requests.append(request)
         return httpx.Response(200, json={'value': []})
 
     async with AdoClient(AdoConfig('https://ado.example', 'Project', 'secret'),
                          transport=httpx.MockTransport(handle)) as client:
         await client.get_work_items(list(range(201)), fields=['Custom.BankCode'], as_of='2026-11-08T00:00:00Z')
         await client.get_work_items([], fields=['Custom.BankCode'])
-    assert [len(b['ids']) for b in bodies] == [200, 1]
-    assert all(b['fields'] == ['Custom.BankCode'] for b in bodies)
-    assert all(b['asOf'] == '2026-11-08T00:00:00Z' for b in bodies)
+    assert len(requests) == 2  # Empty IDs must not send an unbounded request.
+    assert all(r.method == 'GET' and r.url.path.endswith('/wit/workitems') for r in requests)
+    assert requests[0].url.params['ids'] == ','.join(map(str, range(200)))
+    assert requests[1].url.params['ids'] == '200'
+    assert all(r.url.params['fields'] == 'Custom.BankCode' for r in requests)
+    assert all(r.url.params['asOf'] == '2026-11-08T00:00:00Z' for r in requests)
+    assert all(r.url.params['api-version'] == '7.1' for r in requests)
 
 
 @pytest.mark.asyncio
