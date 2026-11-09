@@ -52,7 +52,11 @@ async def load_work():
         return await ado.get_work_items([w['id'] for w in result['workItems']])
 ```
 
-추가 공통 메서드: `list_repositories()`, `compare_commits(repository, base, target)` (커밋 SHA 비교). 모든 네트워크 호출은 비동기이며 타임아웃과 오류 처리를 공통화합니다.
+추가 공통 메서드: `list_repositories()`, `compare_commits(repository, base, target)` (커밋 SHA 비교). 화면에서의 네트워크 호출은 비동기이며 타임아웃과 오류 처리를 공통화합니다.
+WIQL과 작업 항목 상세 조회는 `requests`를 `asyncio.to_thread()`로 실행합니다.
+두 조회의 URL은 `ADO_BASE_URL + /_apis/wit/...`이며 프로젝트 경로를 자동으로 붙이지 않습니다. `ADO_BASE_URL`에 정상 동작하는 경로를 지정하세요.
+이 두 조회는 사내 환경에 맞춰 인증서 검증을 비활성화(`verify=False`)하며 요청 제한시간은 30초입니다.
+상세 조회는 200건씩 나누며 `fields`, `asOf`, 설정된 API 버전을 전달합니다.
 
 SQLite 기본 경로는 `data/dashboard.db`이며 문서 본문, 작업, 전역 테마 설정을 저장합니다. 재시작해도 유지됩니다. 단일 사용자용이며 인증은 포함하지 않습니다. 기본 바인딩은 로컬(127.0.0.1)입니다. 다른 PC 접속이 필요하면 인증 프록시 등 접근 제어를 구성한 뒤 바인딩을 변경하세요. 백업은 앱 종료 후 DB 파일을 복사하세요.
 

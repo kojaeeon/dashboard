@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
 import os
+import asyncio
 from urllib.parse import quote, urlsplit
 import httpx
+import requests
 
 
 @dataclass(frozen=True)
@@ -53,17 +55,46 @@ class AdoClient:
             raise RuntimeError('ADO 서버에 연결할 수 없습니다. URL과 네트워크를 확인하세요.') from None
 
     async def query_wiql(self, query):
-        return await self.request('POST', 'wit/wiql', json={'query': query})
+        return await asyncio.to_thread(self.query_wiql2, query)
+
+    def query_wiql2(self, wiql):
+        return self._work_request('POST', 'wit/wiql', json={'query': wiql})
+
+    def _work_request(self, method, path, **kwargs):
+        params = dict(kwargs.pop('params', {}) or {})
+        params.setdefault('api-version', self.config.api_version)
+        url = f'{self.config.base_url.rstrip("/")}/_apis/{path}'
+        try:
+            response = getattr(requests, method.lower())(
+                url, params=params, auth=('', self.config.pat),
+                verify=False, timeout=30, **kwargs,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as exc:
+            raise RuntimeError(f'ADO 요청 실패 (HTTP {exc.response.status_code})') from None
+        except requests.RequestException:
+            raise RuntimeError('ADO 서버에 연결할 수 없습니다. URL과 네트워크를 확인하세요.') from None
+        except ValueError:
+            raise RuntimeError('ADO 서버가 올바른 JSON 응답을 반환하지 않았습니다.') from None
+
+    def get_workitems(self, ids, *, fields=None, as_of=None):
+        if not ids:
+            return {'value': []}
+        params = {'ids': ','.join(map(str, ids))}
+        if fields is not None:
+            params['fields'] = ','.join(fields)
+        if as_of is not None:
+            params['asOf'] = as_of
+        return self._work_request('GET', 'wit/workitems', params=params)
 
     async def get_work_items(self, ids, *, fields=None, as_of=None):
         items = []
         for start in range(0, len(ids), 200):
-            params = {'ids': ','.join(str(item_id) for item_id in ids[start:start + 200])}
-            if fields is not None:
-                params['fields'] = ','.join(fields)
-            if as_of is not None:
-                params['asOf'] = as_of
-            result = await self.request('GET', 'wit/workitems', params=params)
+            result = await asyncio.to_thread(
+                self.get_workitems, ids[start:start + 200],
+                fields=fields, as_of=as_of,
+            )
             items.extend(result.get('value', []))
         return items
 

@@ -48,15 +48,26 @@ def test_ado_env(monkeypatch):
     assert 'secret' not in repr(config)
 
 
-def test_ado_wiql_workitems_and_error():
+def test_ado_wiql_workitems_and_error(monkeypatch):
     seen = []
     def handle(request):
         seen.append(request)
         if request.url.path.endswith('/wiql'):
-            return httpx.Response(200, json={'queryType': 'flat', 'workItems': [{'id': 42}]})
+            return httpx.Response(200, request=request, json={'queryType': 'flat', 'workItems': [{'id': 42}]})
         if request.url.path.endswith('/workitems'):
-            return httpx.Response(200, json={'value': [{'id': 42, 'fields': {}}]})
-        return httpx.Response(401, json={'message': 'private response'})
+            return httpx.Response(200, request=request, json={'value': [{'id': 42, 'fields': {}}]})
+        return httpx.Response(401, request=request, json={'message': 'private response'})
+    def request_work(method):
+        def send(url, **kwargs):
+            assert kwargs['auth'] == ('', 'secret')
+            assert kwargs['verify'] is False
+            assert kwargs['timeout'] == 30
+            return handle(httpx.Request(method, url, params=kwargs['params'],
+                                        headers={'authorization': 'Basic ' + base64.b64encode(b':secret').decode()},
+                                        json=kwargs.get('json')))
+        return send
+    monkeypatch.setattr('app.common.ado_client.requests.post', request_work('POST'))
+    monkeypatch.setattr('app.common.ado_client.requests.get', request_work('GET'))
     async def run():
         config = AdoConfig('https://ado.example/tfs/Collection', 'My Project', 'secret')
         async with AdoClient(config, transport=httpx.MockTransport(handle)) as ado:
@@ -67,7 +78,7 @@ def test_ado_wiql_workitems_and_error():
             with pytest.raises(RuntimeError, match='401'):
                 await ado.list_repositories()
     asyncio.run(run())
-    assert seen[0].url.path == '/tfs/Collection/My Project/_apis/wit/wiql'
+    assert seen[0].url.path == '/tfs/Collection/_apis/wit/wiql'
     assert seen[0].url.params['api-version'] == '7.1'
     assert seen[0].headers['authorization'] == 'Basic ' + base64.b64encode(b':secret').decode()
 
@@ -99,3 +110,29 @@ def test_document_index_ignores_metadata_and_code():
     from app.common.document_index import headings
     source = '---\ntitle: example\n---\n# First\n```python\n## Not a heading\n```\n## Second\n### Third ###\n'
     assert headings(source) == [(1, 'First', 4), (2, 'Second', 8), (3, 'Third', 9)]
+
+
+@pytest.mark.parametrize('mode', ['http', 'connection', 'json'])
+def test_ado_requests_failures(monkeypatch, mode):
+    import requests
+
+    def fail(url, **kwargs):
+        if mode == 'connection':
+            raise requests.ConnectionError('private details')
+        response = requests.Response()
+        response.status_code = 401 if mode == 'http' else 200
+        response._content = b'private details'
+        response.url = url
+        return response
+
+    monkeypatch.setattr('app.common.ado_client.requests.post', fail)
+
+    async def run():
+        async with AdoClient(AdoConfig('https://ado.example', 'Project', 'secret'),
+                             transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))) as ado:
+            with pytest.raises(RuntimeError) as error:
+                await ado.query_wiql('SELECT [System.Id] FROM WorkItems')
+            assert 'private details' not in str(error.value)
+            if mode == 'http':
+                assert '401' in str(error.value)
+    asyncio.run(run())

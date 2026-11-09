@@ -25,13 +25,19 @@ def test_wiql_metadata_and_values():
 
 
 @pytest.mark.asyncio
-async def test_workitems_uses_selected_fields_and_snapshot():
+async def test_workitems_uses_selected_fields_and_snapshot(monkeypatch):
     requests = []
 
     def handle(request):
         requests.append(request)
-        return httpx.Response(200, json={'value': []})
+        return httpx.Response(200, request=request, json={'value': []})
 
+    def get(url, **kwargs):
+        assert kwargs['auth'] == ('', 'secret')
+        assert kwargs['verify'] is False
+        return handle(httpx.Request('GET', url, params=kwargs['params']))
+
+    monkeypatch.setattr('app.common.ado_client.requests.get', get)
     async with AdoClient(AdoConfig('https://ado.example', 'Project', 'secret'),
                          transport=httpx.MockTransport(handle)) as client:
         await client.get_work_items(list(range(201)), fields=['Custom.BankCode'], as_of='2026-11-08T00:00:00Z')
