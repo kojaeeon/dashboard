@@ -53,7 +53,7 @@ def render(db: Database):
         with ui.row().classes('w-full justify-end'):
             query_button = ui.button('WIQL 실행', icon='play_arrow', on_click=query)
         ui.label('환경변수의 ADO 설정으로 조회합니다. PAT는 화면과 DB에 저장하지 않습니다.')
-        wiql = ui.textarea('WIQL', value="SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project ORDER BY [System.ChangedDate] DESC").classes('w-full')
+        wiql = ui.textarea('WIQL', value="SELECT [System.Id], [System.Title] FROM WorkItems WHERE [System.TeamProject] = @project ORDER BY [System.ChangedDate] DESC").props('outlined').classes('w-full')
         def show_detail(row):
             with ui.dialog() as dialog, ui.card().classes('w-full max-w-3xl'):
                 ui.label(f"작업 항목 #{row.get('System.Id', '')}").classes('text-lg font-bold')
