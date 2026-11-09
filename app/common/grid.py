@@ -84,9 +84,9 @@ class CommonGrid:
             }, auto_size_columns=False).classes('w-full h-96').mark(grid_id)
             self.element.on('selectionChanged', self._selection_changed)
             if on_row_click:
-                self.element.on('rowClicked', lambda e: handle_event(on_row_click, e.args.get('data', {})))
+                self.element.on('rowClicked', lambda e: handle_event(on_row_click, e.args.get('data', {})), args=['data'])
             if on_row_double_click:
-                self.element.on('rowDoubleClicked', lambda e: handle_event(on_row_double_click, e.args.get('data', {})))
+                self.element.on('rowDoubleClicked', lambda e: handle_event(on_row_double_click, e.args.get('data', {})), args=['data'])
 
     def set_columns(self, columns: list[GridColumn]):
         self.columns = list(columns)
