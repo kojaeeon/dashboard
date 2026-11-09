@@ -1,6 +1,7 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
-from nicegui import ui
+from nicegui import ui, app as nicegui_app
 from app.common.database import Database
 from app.common.markdown_viewer import MermaidRenderer
 from app.menu import build_menu
@@ -8,6 +9,11 @@ from app.theme import apply_theme
 from app.pages import markdown, work, ui_test, deploy_backup, schedule
 
 load_dotenv()
+
+IMAGE_DIR = Path(__file__).resolve().parents[1] / 'images'
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+nicegui_app.add_static_files('/images', str(IMAGE_DIR))
+
 db = Database(os.getenv('DASHBOARD_DB_PATH', 'data/dashboard.db'))
 
 
