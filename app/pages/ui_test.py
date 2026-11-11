@@ -4,7 +4,7 @@ from pathlib import Path
 from nicegui import run, ui
 from app.common.local_library import markdown_files
 from app.testing.runner import ROOT, UITestRun
-from app.testing.scenario import parse_scenario
+from app.testing.scenario import effective_browser, parse_browser_config, parse_scenario
 
 SAMPLE_PATH = ROOT / 'examples' / 'ui-test-smoke.md'
 
@@ -16,6 +16,8 @@ def render(db):
     session = UITestRun()
     last_report = None
     stopping = False
+    browser_override = None
+    browser_error = False
 
     def scan_files():
         files = {str(SAMPLE_PATH): '기본 예시 · ui-test-smoke.md'}
@@ -26,6 +28,72 @@ def render(db):
             except OSError:
                 continue
         return files
+
+    def browser_files():
+        files = scan_files()
+        example = ROOT / 'examples' / 'browser.md'
+        if example.exists():
+            files[str(example)] = '브라우저 설정 예시 · browser.md'
+        return files
+
+    def sync_browser(scenario):
+        config = effective_browser(scenario.browser, browser_override)
+        base_url.set_value(config.base_url)
+        headed.set_value(not config.headless)
+        browser_preview.set_content(config.model_dump_json(indent=2))
+
+    def load_browser_content(content):
+        nonlocal browser_override
+        config = parse_browser_config(content)
+        browser_override = config
+        scenario = validate()
+        if scenario:
+            sync_browser(scenario)
+        browser_message.set_text('브라우저 MD 적용 완료 · 실행 시 이 설정을 사용합니다.')
+
+    def load_browser(path):
+        nonlocal browser_override, browser_error
+        if session.running:
+            return
+        try:
+            if not path:
+                browser_override = None
+                browser_error = False
+                scenario = validate()
+                if scenario:
+                    sync_browser(scenario)
+                browser_message.set_text('시나리오의 browser 설정을 사용합니다.')
+                run_button.enable()
+                return
+            selected = Path(path)
+            if selected.stat().st_size > 2 * 1024 * 1024:
+                raise ValueError('2MB 이하 파일만 지원합니다.')
+            load_browser_content(selected.read_text(encoding='utf-8-sig'))
+            browser_error = False
+        except (OSError, UnicodeError, ValueError) as exc:
+            # Never silently fall back to a different browser after a failed selection.
+            browser_message.set_text(f'브라우저 MD 오류: {exc}')
+            browser_error = True
+            run_button.disable()
+            ui.notify(str(exc), type='warning')
+            return
+        run_button.enable()
+
+    async def upload_browser(e):
+        nonlocal browser_error
+        if session.running:
+            return
+        try:
+            if e.file.size() > 2 * 1024 * 1024:
+                raise ValueError('2MB 이하 파일만 지원합니다.')
+            load_browser_content((await e.file.read()).decode('utf-8-sig'))
+            browser_error = False
+            run_button.enable()
+        except (UnicodeError, ValueError) as exc:
+            browser_message.set_text(f'브라우저 MD 오류: {exc}')
+            browser_error = True
+            run_button.disable()
+            ui.notify(str(exc), type='warning')
 
     def validate():
         try:
@@ -54,8 +122,7 @@ def render(db):
             source.set_value(selected.read_text(encoding='utf-8-sig'))
             scenario = validate()
             if scenario:
-                base_url.set_value(scenario.browser.base_url)
-                headed.set_value(not scenario.browser.headless)
+                sync_browser(scenario)
         except (OSError, UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
@@ -68,8 +135,7 @@ def render(db):
             source.set_value((await e.file.read()).decode('utf-8-sig'))
             scenario = validate()
             if scenario:
-                base_url.set_value(scenario.browser.base_url)
-                headed.set_value(not scenario.browser.headless)
+                sync_browser(scenario)
         except (UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
@@ -89,6 +155,18 @@ def render(db):
             ui.button('단계 확인', icon='checklist', on_click=validate).props('flat')
         with ui.column().classes('w-full xl:w-1/2 min-w-0 gap-4'):
             with ui.card().classes('w-full'):
+                ui.label('브라우저 MD 설정').classes('text-lg font-semibold')
+                with ui.row().classes('w-full items-center gap-2'):
+                    browser_select = ui.select(browser_files(), label='브라우저 설정 MD', clearable=True,
+                                               with_input=True, on_change=lambda e: load_browser(e.value)).classes('grow min-w-0').mark('ui-test-browser-md')
+                    browser_refresh = ui.button(icon='refresh', on_click=lambda: browser_select.set_options(browser_files())).props(
+                        'flat round aria-label="브라우저 MD 목록 새로고침"')
+                browser_upload = ui.upload(label='브라우저 MD 불러오기', on_upload=upload_browser, auto_upload=True,
+                                           max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown').classes('w-full')
+                browser_message = ui.label('시나리오의 browser 설정을 사용합니다.').classes('text-sm whitespace-pre-wrap break-all')
+                with ui.expansion('적용할 브라우저 설정', icon='settings').classes('w-full'):
+                    browser_preview = ui.code('', language='json').classes('w-full')
+            with ui.card().classes('w-full'):
                 scenario_title = ui.label('').classes('text-lg font-semibold')
                 base_url = ui.input('시작 URL', value='http://127.0.0.1:8080').classes('w-full')
                 headed = ui.switch('브라우저 표시', value=True)
@@ -106,20 +184,23 @@ def render(db):
             evidence = ui.column().classes('w-full')
 
     def controls(enabled):
-        for element in (run_button, source, file_select, uploader, base_url, headed):
+        for element in (run_button, source, file_select, uploader, base_url, headed,
+                        browser_select, browser_upload, browser_refresh):
             element.set_enabled(enabled)
         stop_button.set_enabled(not enabled)
+        if browser_error:
+            run_button.disable()
 
     async def start():
         nonlocal last_report, stopping
-        if session.running or validate() is None:
+        if session.running or browser_error or validate() is None:
             return
         stopping = False
         last_report = None
         evidence.clear()
         controls(False)
         try:
-            run_id = await run.io_bound(session.start, source.value, base_url.value, headed.value)
+            run_id = await run.io_bound(session.start, source.value, base_url.value, headed.value, browser_override)
             message.set_text(f'실행 준비 중 · {run_id}')
             output_label.set_text(str(session.output))
             poller.activate()
@@ -174,4 +255,7 @@ def render(db):
     run_button.on_click(start)
     stop_button.on_click(stop)
     poller = ui.timer(.5, poll, active=False)
-    validate()
+    initial = validate()
+    if initial:
+        sync_browser(initial)
+

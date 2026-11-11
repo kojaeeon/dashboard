@@ -1,5 +1,6 @@
 """Validate executable frontmatter before starting a browser."""
 import re
+from typing import Literal
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -47,11 +48,53 @@ class Step(BaseModel):
         return self
 
 
+class Viewport(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    width: int = Field(default=1440, ge=1, le=16384)
+    height: int = Field(default=1000, ge=1, le=16384)
+
+
 class BrowserConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    browser: Literal['chromium', 'firefox', 'webkit'] = 'chromium'
+    executable_path: str | None = None
+    viewport: Viewport = Field(default_factory=Viewport)
     base_url: str = 'http://127.0.0.1:8080'
     timeout: int = Field(default=10000, ge=100, le=120000)
     headless: bool = False
+
+    @model_validator(mode='after')
+    def validate_url(self):
+        validate_base_url(self.base_url)
+        if self.executable_path is not None:
+            self.executable_path = self.executable_path.strip() or None
+        return self
+
+
+def parse_browser_config(markdown: str) -> BrowserConfig:
+    """Accept a standalone browser MD or a scenario-style browser mapping."""
+    if len(markdown.encode('utf-8')) > 2 * 1024 * 1024:
+        raise ValueError('브라우저 MD는 2MB 이하로 작성하세요.')
+    match = re.match(r'\A\ufeff?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)', markdown, re.S)
+    if not match:
+        raise ValueError('브라우저 MD 맨 위에 YAML 프론트매터(---)가 필요합니다.')
+    try:
+        metadata = yaml.safe_load(match[1])
+        if not isinstance(metadata, dict) or 'browser' not in metadata:
+            raise ValueError('browser 항목이 필요합니다.')
+        return BrowserConfig.model_validate(metadata['browser'] if isinstance(metadata['browser'], dict) else metadata)
+    except (yaml.YAMLError, ValidationError, RecursionError) as exc:
+        raise ValueError(f'브라우저 설정 검증 실패: {exc}') from exc
+
+
+def effective_browser(scenario: BrowserConfig, override: BrowserConfig | None = None) -> BrowserConfig:
+    values = scenario.model_dump()
+    if override is not None:
+        specified = override.model_dump(exclude_unset=True)
+        if 'viewport' in specified:
+            specified['viewport'] = {**values['viewport'], **specified['viewport']}
+        values.update(specified)
+    return BrowserConfig.model_validate(values)
 
 
 @dataclass
@@ -92,3 +135,4 @@ def validate_base_url(value):
     if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
         raise ValueError('시작 URL은 http:// 또는 https:// 주소여야 합니다.')
     return value
+

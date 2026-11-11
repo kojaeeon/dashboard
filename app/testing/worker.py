@@ -6,14 +6,15 @@ import time
 
 from playwright.async_api import async_playwright
 from app.common.ui_accelerator import PlaywrightAccelerator
-from app.testing.scenario import parse_scenario
+from app.testing.scenario import BrowserConfig, effective_browser, parse_scenario
 from app.testing.report_store import write_report
 
 
-async def execute_file(source, output, base_url=None, headed=None):
+async def execute_file(source, output, base_url=None, headed=None, browser_config=None):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     scenario = parse_scenario(Path(source).read_text(encoding='utf-8-sig'))
+    config = effective_browser(scenario.browser, browser_config)
     report = {'title': scenario.title, 'status': 'running', 'error': '', 'steps': [
         {'number': i, 'action': s.action, 'target': s.label or s.name or s.selector or s.id or s.text,
          'status': 'pending', 'duration_ms': 0, 'strategy': '', 'error': ''}
@@ -26,18 +27,24 @@ async def execute_file(source, output, base_url=None, headed=None):
 
     async def run_browser():
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(
-                headless=scenario.browser.headless if headed is None else not headed)
+            launch_options = {'headless': config.headless if headed is None else not headed}
+            if config.executable_path:
+                if not Path(config.executable_path).is_file():
+                    raise ValueError(f'브라우저 실행 파일이 없습니다: {config.executable_path}')
+                launch_options['executable_path'] = config.executable_path
+            browser = await getattr(playwright, config.browser).launch(**launch_options)
             context = None
             current = None
             try:
-                context = await browser.new_context(viewport={'width': 1440, 'height': 1000})
+                context = await browser.new_context(viewport=config.viewport.model_dump())
+                context.set_default_timeout(config.timeout)
+                context.set_default_navigation_timeout(config.timeout)
                 await context.tracing.start(screenshots=True, snapshots=True, sources=True)
                 page = await context.new_page()
                 accelerator = PlaywrightAccelerator(
-                    page, base_url=base_url or scenario.browser.base_url,
-                    output_dir=output, timeout=scenario.browser.timeout)
-                await page.goto(accelerator.base_url, wait_until='domcontentloaded', timeout=scenario.browser.timeout)
+                    page, base_url=base_url or config.base_url,
+                    output_dir=output, timeout=config.timeout)
+                await page.goto(accelerator.base_url, wait_until='domcontentloaded', timeout=config.timeout)
                 for step, current in zip(scenario.steps, report['steps']):
                     current['status'] = 'running'
                     publish()
@@ -102,12 +109,14 @@ def main():
     parser.add_argument('--scenario', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--base-url')
+    parser.add_argument('--browser-config')
     parser.add_argument('--headed', action='store_true')
     parser.add_argument('--headless', action='store_true')
     args = parser.parse_args()
     try:
+        config = BrowserConfig.model_validate_json(Path(args.browser_config).read_text(encoding='utf-8')) if args.browser_config else None
         report = asyncio.run(execute_file(args.scenario, args.output, args.base_url,
-                                        True if args.headed else False if args.headless else None))
+                                        True if args.headed else False if args.headless else None, config))
         return 0 if report['status'] == 'passed' else 1
     except Exception as exc:
         output = Path(args.output)
@@ -119,3 +128,4 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
+

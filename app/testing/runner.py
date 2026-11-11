@@ -6,7 +6,7 @@ import subprocess
 import sys
 from uuid import uuid4
 
-from app.testing.scenario import parse_scenario, validate_base_url
+from app.testing.scenario import BrowserConfig, effective_browser, parse_scenario, validate_base_url
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -21,19 +21,29 @@ class UITestRun:
     def running(self):
         return self.process is not None and self.process.poll() is None
 
-    def start(self, markdown, base_url, headed=False):
+    def start(self, markdown, base_url, headed=None, browser_config: BrowserConfig | None = None):
         if self.running:
             raise ValueError('이미 실행 중입니다.')
-        parse_scenario(markdown)
+        scenario = parse_scenario(markdown)
+        browser_config = effective_browser(scenario.browser, browser_config)
         validate_base_url(base_url)
+        applied = browser_config.model_dump()
+        applied['base_url'] = base_url
+        if headed is not None:
+            applied['headless'] = not headed
+        browser_config = BrowserConfig.model_validate(applied)
         run_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid4().hex[:8]
         self.output = (self.output_root / run_id).resolve()
         self.output.mkdir(parents=True)
         source = self.output / 'scenario.md'
         source.write_text(markdown, encoding='utf-8')
+        config_path = self.output / 'browser.json'
+        config_path.write_text(browser_config.model_dump_json(indent=2), encoding='utf-8')
         command = [sys.executable, '-m', 'app.testing.worker', '--scenario', str(source),
                    '--output', str(self.output), '--base-url', base_url,
-                   '--headed' if headed else '--headless']
+                   '--browser-config', str(config_path)]
+        if headed is not None:
+            command.append('--headed' if headed else '--headless')
         with (self.output / 'worker.log').open('w', encoding='utf-8') as log:
             self.process = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=log,
                                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -55,3 +65,4 @@ class UITestRun:
             report['status'] = 'failed'
             report['error'] = '실행 프로세스가 종료되었습니다. worker.log를 확인하세요.'
         return report
+
