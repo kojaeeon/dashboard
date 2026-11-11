@@ -138,34 +138,35 @@ def render(db: Database, generator: CodeGenerator | None = None):
         finally:
             refresh_md.enable()
 
-    with ui.card().classes('w-full'):
-        ui.label('MD에서 자동 입력').classes('text-lg font-semibold')
-        with ui.row().classes('w-full items-center gap-2'):
-            md_select = ui.select({}, label='프론트매터 MD 선택', with_input=True,
-                                  clearable=True, on_change=apply_markdown).props('outlined').classes('grow min-w-0').mark('code-gen-md')
-            refresh_md = ui.button(icon='refresh', on_click=reload_markdown).props(
-                'flat round aria-label="MD 목록 새로고침"').tooltip('MD 목록 새로고침')
-        md_location = ui.label('저장 문서 및 등록된 로컬 폴더의 하위 MD 파일').classes('text-xs text-gray-500 break-all')
-        md_status = ui.label('MD 목록을 읽는 중입니다.').classes('text-sm text-gray-500')
-        with ui.expansion('읽어온 프론트매터 보기', icon='data_object').classes('w-full'):
-            md_yaml = ui.code('', language='yaml').classes('w-full')
-
     with ui.row().classes('w-full items-start gap-5 flex-wrap lg:flex-nowrap'):
-        # Disable inputs during service execution so a stale result cannot be downloaded.
-        with ui.card().classes('w-full lg:w-2/5 min-w-0'):
-            ui.label('생성 정보').classes('text-lg font-semibold')
-            table_name = ui.input('테이블명 *', placeholder='KAML.TB_CRA_INSPECTION', on_change=invalidate).props('outlined').classes('w-full')
-            ui.label('스키마.테이블 또는 테이블명').classes('text-xs text-gray-500')
-            service_name = ui.input('서비스명 *', placeholder='CraInspection', on_change=invalidate).props('outlined').classes('w-full')
-            korean_name = ui.input('서비스 한글명 *', placeholder='CRA 정기점검', on_change=invalidate).props('outlined').classes('w-full')
-            package_path = ui.input('패키지 경로 *', placeholder='com.kaml.cra.inspection', on_change=invalidate).props('outlined').classes('w-full')
-            ui.label('템플릿 세트 · Spring + MyBatis').classes('text-sm')
-            ui.label('생성 대상').classes('font-semibold')
-            with ui.row().classes('gap-2 flex-wrap'):
-                target_checks = {target: ui.checkbox('Mapper XML' if target == 'Mapper' else target,
-                                                    value=True, on_change=invalidate) for target in TARGETS}
-            generate_button = ui.button('코드 미리보기', icon='code', on_click=generate).classes('w-full').mark('code-gen-preview')
-            ui.label('현재는 Jinja2 샘플 템플릿으로 표시합니다.').classes('text-xs text-gray-500')
+        with ui.column().classes('w-full lg:w-2/5 min-w-0 gap-5'):
+            with ui.card().classes('w-full'):
+                ui.label('MD에서 자동 입력').classes('text-lg font-semibold')
+                with ui.row().classes('w-full items-center gap-2'):
+                    md_select = ui.select({}, label='프론트매터 MD 선택', with_input=True,
+                                          clearable=True, on_change=apply_markdown).props('outlined').classes('grow min-w-0').mark('code-gen-md')
+                    refresh_md = ui.button(icon='refresh', on_click=reload_markdown).props(
+                        'flat round aria-label="MD 목록 새로고침"').tooltip('MD 목록 새로고침')
+                md_location = ui.label('저장 문서 및 등록된 로컬 폴더의 하위 MD 파일').classes('text-xs text-gray-500 break-all')
+                md_status = ui.label('MD 목록을 읽는 중입니다.').classes('text-sm text-gray-500')
+                with ui.expansion('읽어온 프론트매터 보기', icon='data_object').classes('w-full'):
+                    md_yaml = ui.code('', language='yaml').classes('w-full')
+
+            # Disable inputs during service execution so a stale result cannot be downloaded.
+            with ui.card().classes('w-full'):
+                ui.label('생성 정보').classes('text-lg font-semibold')
+                table_name = ui.input('테이블명 *', placeholder='KAML.TB_CRA_INSPECTION', on_change=invalidate).props('outlined').classes('w-full')
+                ui.label('스키마.테이블 또는 테이블명').classes('text-xs text-gray-500')
+                service_name = ui.input('서비스명 *', placeholder='CraInspection', on_change=invalidate).props('outlined').classes('w-full')
+                korean_name = ui.input('서비스 한글명 *', placeholder='CRA 정기점검', on_change=invalidate).props('outlined').classes('w-full')
+                package_path = ui.input('패키지 경로 *', placeholder='com.kaml.cra.inspection', on_change=invalidate).props('outlined').classes('w-full')
+                ui.label('템플릿 세트 · Spring + MyBatis').classes('text-sm')
+                ui.label('생성 대상').classes('font-semibold')
+                with ui.row().classes('gap-2 flex-wrap'):
+                    target_checks = {target: ui.checkbox('Mapper XML' if target == 'Mapper' else target,
+                                                        value=True, on_change=invalidate) for target in TARGETS}
+                generate_button = ui.button('코드 미리보기', icon='code', on_click=generate).classes('w-full').mark('code-gen-preview')
+                ui.label('현재는 Jinja2 샘플 템플릿으로 표시합니다.').classes('text-xs text-gray-500')
         with ui.column().classes('w-full lg:w-3/5 min-w-0 gap-5'):
             with ui.card().classes('w-full'):
                 with ui.row().classes('w-full items-center justify-between gap-2'):
