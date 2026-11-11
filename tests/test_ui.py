@@ -1,3 +1,4 @@
+import re
 import pytest
 from nicegui import ui
 from app.common.database import Database
@@ -11,6 +12,7 @@ async def test_document_and_work_flow(user, tmp_path, monkeypatch):
     ui.page('/')(main.index)
     await user.open('/')
     await user.should_see('Markdown Workspace')
+    user.javascript_rules[re.compile(r'.*markdown-save-snapshot.*')] = lambda _: main.markdown.SAMPLE
     user.find(kind=ui.select, content='Mermaid 테마').click()
     user.find('forest').click()
     assert main.db.setting('mermaid_theme') == 'forest'
@@ -48,3 +50,59 @@ async def test_mixed_markdown(user):
     await user.should_see('After diagram')
     assert len(user.find(kind=ui.mermaid).elements) == 1
     assert len(user.find(kind=ui.code).elements) == 2
+
+
+@pytest.mark.asyncio
+async def test_local_edit_saves_original_file_from_live_editor(user, tmp_path):
+    from app.pages.markdown import render
+    folder = tmp_path / 'docs'
+    folder.mkdir()
+    path = folder / 'local.md'
+    path.write_bytes(b'\xef\xbb\xbf# Original\r\n')
+    db = Database(str(tmp_path / 'local.db'))
+    db.add_folder(str(folder))
+
+    @ui.page('/local-save')
+    def local_page():
+        render(db)
+
+    latest = '# 최신 수정\n```java\nString value = "한글 😀";\n```\n'
+    user.javascript_rules[re.compile(r'.*markdown-save-snapshot.*')] = lambda _: latest
+    await user.open('/local-save')
+    user.find('docs').click()
+    user.find('local.md').click()
+    # Simulate a browser snapshot newer than the Python editor value.
+    user.find('저장').click()
+    await user.should_see('원본 MD 파일을 저장했습니다.')
+    assert path.read_bytes() == b'\xef\xbb\xbf' + latest.replace('\n', '\r\n').encode('utf-8')
+    assert db.list('documents') == []
+    user.find('local.md').click()
+    user.find(marker='text-mode').click()
+    assert next(iter(user.find(kind=ui.codemirror).elements)).value == latest
+
+
+@pytest.mark.asyncio
+async def test_sqlite_save_uses_latest_browser_content(user, tmp_path):
+    from app.pages.markdown import render
+    db = Database(str(tmp_path / 'sqlite.db'))
+
+    @ui.page('/sqlite-save')
+    def sqlite_page():
+        render(db)
+
+    latest = {'content': '# First edit\n```python\nprint("😀")\n```'}
+    user.javascript_rules[re.compile(r'.*markdown-save-snapshot.*')] = lambda _: latest['content']
+    await user.open('/sqlite-save')
+    user.find('저장').click()
+    await user.should_see('문서를 저장했습니다.')
+    assert db.list('documents')[0]['content'] == latest['content']
+    latest['content'] = '# Second edit\n```java\nString s = "한글";\n```'
+    user.find('저장').click()
+    # Wait for the asynchronous click handler, not an earlier notification.
+    import asyncio
+    for _ in range(50):
+        if db.list('documents')[0]['content'] == latest['content']:
+            break
+        await asyncio.sleep(.01)
+    assert len(db.list('documents')) == 1
+    assert db.list('documents')[0]['content'] == latest['content']

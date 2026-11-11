@@ -7,7 +7,7 @@ name = "kja-dashboard"
 version = "0.1.0"
 description = "NiceGUI Markdown and UI work dashboard"
 requires-python = ">=3.11"
-dependencies = ["nicegui>=3.19,<4", "httpx>=0.27,<1", "requests>=2.32,<3", "python-dotenv>=1,<2", "PyYAML>=6,<7", "playwright>=1.51,<2", "Jinja2>=3.1,<4"]
+dependencies = ["nicegui>=3.19,<4", "httpx>=0.27,<1", "requests>=2.32,<3", "python-dotenv>=1,<2", "PyYAML>=6,<7", "playwright>=1.51,<2", "Jinja2>=3.1,<4", "pydot>=4,<5"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "pyftpdlib>=2,<3"]
@@ -26,5 +26,5 @@ main_file = ""
 
 
 [tool.setuptools.package-data]
-app = ["common/*.js", "common/calendar_vendor/*.js", "common/calendar_vendor/*LICENSE*", "common/calendar_vendor/README.md"]
+app = ["common/*.js", "common/*.css", "common/mindmap_vendor/*", "common/calendar_vendor/*.js", "common/calendar_vendor/*LICENSE*", "common/calendar_vendor/README.md"]
 

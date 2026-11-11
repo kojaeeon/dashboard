@@ -1,0 +1,9 @@
+digraph ServiceMap {
+    rankdir=LR;
+    node [shape=box, style=rounded];
+
+    "고객조회 화면" -> "CustomerController";
+    "CustomerController" -> "CustomerService";
+    "CustomerService" -> "CustomerMapper";
+    "CustomerMapper" -> "CUSTOMER 테이블";
+}

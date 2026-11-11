@@ -5,13 +5,15 @@ from app.common.database import Database
 from app.common.markdown_viewer import MarkdownViewer, MermaidRenderer
 from app.common.local_library import local_library
 from app.common.document_index import headings
+from app.common.markdown_file import MarkdownFile, normalize_newlines
 
 SAMPLE_PATH = Path(__file__).resolve().parents[2] / 'examples' / 'main-test.md'
 SAMPLE = SAMPLE_PATH.read_text(encoding='utf-8')
 
 
 def render(db: Database):
-    state = {'mode': 'render', 'document_id': None, 'theme': db.setting('mermaid_theme', 'default')}
+    state = {'mode': 'render', 'document_id': None, 'local_file': None, 'generation': 0,
+             'saving': False, 'theme': db.setting('mermaid_theme', 'default')}
     if state['theme'] not in MermaidRenderer.THEMES:
         state['theme'] = 'default'
     dark = ui.dark_mode(db.setting('app_theme', 'light') == 'dark')
@@ -42,7 +44,10 @@ def render(db: Database):
                     ui.button(doc['title'], on_click=lambda d=doc: open_document(d)).props('flat no-caps').classes('w-full justify-start')
             document_list()
             def new_document():
+                state['generation'] += 1
+                state['local_file'] = None
                 state['document_id'] = None
+                save_location.set_text('저장 위치: SQLite 문서')
                 title.set_value('새 문서')
                 editor.set_value('')
                 preview.refresh()
@@ -50,13 +55,16 @@ def render(db: Database):
                 try:
                     if path.stat().st_size > 2 * 1024 * 1024:
                         raise ValueError('2MB 이하 파일만 지원합니다.')
-                    content = path.read_text(encoding='utf-8-sig')
+                    local = MarkdownFile.open(path)
                 except (OSError, UnicodeError, ValueError) as exc:
                     ui.notify(f'파일을 읽을 수 없습니다: {exc}', type='warning')
                     return
                 state['document_id'] = None
+                state['local_file'] = local
+                state['generation'] += 1
+                save_location.set_text(f'저장 위치: {local.path}')
                 title.set_value(path.stem)
-                editor.set_value(content)
+                editor.set_value(local.content)
                 preview.refresh()
 
             local_library(db, open_local_file)
@@ -68,22 +76,43 @@ def render(db: Database):
                 except UnicodeDecodeError:
                     ui.notify('UTF-8 형식의 MD 파일이 필요합니다.', type='warning'); return
                 state['document_id'] = None
+                state['local_file'] = None
+                state['generation'] += 1
+                save_location.set_text('저장 위치: SQLite 문서 (불러온 파일의 원본 경로는 제공되지 않습니다)')
                 title.set_value(Path(e.file.name).stem)
-                editor.set_value(content)
+                editor.set_value(normalize_newlines(content))
                 preview.refresh()
             ui.upload(label='MD 불러오기', on_upload=upload, auto_upload=True,
                       max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown,text/markdown').classes('w-full')
         with ui.column().classes('w-full min-w-0 gap-4'):
             with ui.row().classes('w-full items-center'):
                 title = ui.input('문서 제목', value='시작하기').classes('grow')
-                def save_document():
+                async def save_document():
+                    if state['saving']:
+                        return
+                    state['saving'] = True
+                    generation = state['generation']
+                    save_button.disable()
                     try:
-                        state['document_id'] = db.save_document(title.value, editor.value or '', state['document_id'])
-                        document_list.refresh()
-                        ui.notify('문서를 저장했습니다.', type='positive')
-                    except ValueError as exc:
+                        content = await ui.run_javascript(
+                            f'return getElement({editor.id}).editor.state.doc.toString(); /* markdown-save-snapshot */', timeout=10)
+                        if not isinstance(content, str):
+                            raise ValueError('편집기 내용을 확인하지 못했습니다. 다시 저장해 주세요.')
+                        if generation != state['generation']:
+                            raise ValueError('저장 중 문서가 전환되었습니다. 현재 문서를 다시 저장해 주세요.')
+                        if state['local_file'] is not None:
+                            state['local_file'].save(content)
+                            ui.notify('원본 MD 파일을 저장했습니다.', type='positive')
+                        else:
+                            state['document_id'] = db.save_document(title.value, content, state['document_id'])
+                            document_list.refresh()
+                            ui.notify('문서를 저장했습니다.', type='positive')
+                    except (OSError, ValueError, TimeoutError) as exc:
                         ui.notify(str(exc), type='warning')
-                ui.button('저장', icon='save', on_click=save_document)
+                    finally:
+                        state['saving'] = False
+                        save_button.enable()
+                save_button = ui.button('저장', icon='save', on_click=save_document)
                 async def delete_document():
                     if state['document_id'] is None:
                         return
@@ -97,6 +126,7 @@ def render(db: Database):
                         new_document()
                         document_list.refresh()
                 ui.button(icon='delete', on_click=delete_document).props('flat color=negative')
+            save_location = ui.label('저장 위치: SQLite 문서').classes('text-xs text-gray-500 break-all')
             def set_mode(mode):
                 state['mode'] = mode
                 text_panel.set_visibility(mode == 'text')
@@ -221,9 +251,12 @@ def render(db: Database):
                     'flat round aria-label="문서 맨 아래로 이동"').tooltip('문서 맨 아래로')
 
             def open_document(doc):
+                state['local_file'] = None
+                state['generation'] += 1
                 state['document_id'] = doc['id']
+                save_location.set_text('저장 위치: SQLite 문서')
                 title.set_value(doc['title'])
-                editor.set_value(doc['content'])
+                editor.set_value(normalize_newlines(doc['content']))
                 preview.refresh()
 
 

@@ -1,5 +1,8 @@
 import re
+from pathlib import Path
 from nicegui import ui
+
+FULLSCREEN_SCRIPT = (Path(__file__).parent / 'mermaid_fullscreen.js').read_text(encoding='utf-8')
 
 
 class MermaidRenderer:
@@ -12,6 +15,8 @@ class MermaidRenderer:
             raise ValueError('Unsupported Mermaid theme')
         with ui.column().classes('w-full gap-1'):
             with ui.row().classes('w-full justify-end'):
+                fullscreen_button = ui.button(icon='fullscreen').props(
+                    'flat round dense aria-label="Mermaid 전체화면"').tooltip('전체화면으로 보기')
                 with ui.button(icon='ios_share').props(
                         'flat round dense aria-label="Mermaid 출력"').tooltip('Mermaid 출력'):
                     with ui.menu():
@@ -22,6 +27,7 @@ class MermaidRenderer:
                 'theme': theme, 'securityLevel': 'strict', 'startOnLoad': False,
                 'secure': ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'theme'],
             }).classes('w-full overflow-auto').style('min-height: 120px')
+            fullscreen_button.on('click', js_handler=FULLSCREEN_SCRIPT.replace('DIAGRAM_ID', str(diagram.id)))
         return diagram
 
     @staticmethod

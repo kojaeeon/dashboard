@@ -1,4 +1,4 @@
-"""Persistent local folder library; original files are opened read-only."""
+"""Persistent local folder library with callbacks for opening local files."""
 from pathlib import Path
 from nicegui import ui
 

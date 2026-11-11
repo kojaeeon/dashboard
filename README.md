@@ -19,7 +19,9 @@ python -m app.main
 
 ## 메뉴
 
-- **MD 보기**: 문서 생성·편집·저장·삭제, UTF-8 MD 불러오기(2MB), 다운로드, Mermaid 포함 미리보기.
+- **MD 보기**: 로컬 폴더의 MD 열기·편집·원본 저장, SQLite 문서 저장·삭제, UTF-8 MD 불러오기(2MB), Mermaid 포함 미리보기.
+- MD 화면에 저장 위치를 표시합니다. 등록 폴더에서 연 파일은 원본 MD에 저장하며 UTF-8 BOM과 기존 줄바꿈을 유지합니다. 업로드로 불러온 문서와 기본 문서는 SQLite에 저장합니다. 원본이 외부에서 변경되면 덮어쓰지 않고 다시 열도록 안내합니다.
+- Mermaid의 전체화면 아이콘으로 크게 볼 수 있습니다. 확대·축소(10~800%), 100% 초기화, 화면 맞춤은 전체화면 안에서만 제공합니다. 큰 다이어그램은 마우스 왼쪽 버튼으로 잡아 끌어 이동하며, 휠·스크롤바·키보드 스크롤도 사용할 수 있습니다. Ctrl+휠은 확대·축소, Esc 또는 닫기는 문서 복귀입니다.
 - **Work**: 작업 추가·수정·삭제, 할 일/진행 중/완료 상태와 메모 관리. 업무 작업 보드를 제공합니다. UI 테스트는 별도 UI_TEST 메뉴에서 실행합니다.
 - **ADO WIQL**: Work 작업 보드 위의 접기/펼치기 영역에서 Flat WIQL 실행 및 공통 AG Grid로 동적 컬럼 표시(화면 최대 200건).
 - 화면 테마(light/dark)와 Mermaid 테마(default/dark/forest/neutral/base)는 별도로 선택하고 SQLite에 저장합니다. MD 수정 후 '미리보기 갱신'을 누르세요.
@@ -246,3 +248,7 @@ CDN 연결이나 npm 설치를 할 필요가 없습니다. 기본 CRUD에는 추
 
 공통 캘린더는 `app/common/calendar.py` / `calendar.js`, 데이터 처리는
 `app/scheduling/repository.py` / `service.py`, 화면은 `app/pages/schedule.py`에 있습니다.
+
+### 마인드맵
+
+마인드맵 메뉴에서 노드·관계·사용자 정의 유형을 편집하고 SQLite에 저장합니다. 전체화면, 확대·축소, 마우스 이동과 DOT·Mermaid·JSON 가져오기/내보내기를 지원합니다. 변환 범위와 단축키는 [마인드맵 안내](docs/mindmap-design.md)를 참고하세요.
