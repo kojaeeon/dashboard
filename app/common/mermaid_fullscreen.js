@@ -42,7 +42,10 @@ async () => {
         button:disabled { opacity:.35; cursor:default; }
         output { min-width:54px; text-align:center; font-variant-numeric:tabular-nums; }
         .viewport { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain;
-            cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+            cursor:grab; touch-action:pan-x pan-y; }
+        .viewport svg text, .viewport svg tspan, .viewport svg foreignObject,
+        .viewport svg foreignObject * { user-select:text !important; -webkit-user-select:text !important; cursor:text; }
+        .viewport.space-pressed, .viewport.space-pressed * { cursor:grab !important; }
         .viewport.is-dragging, .viewport.is-dragging * { cursor:grabbing !important; }
         .canvas { width:max-content; min-width:100%; min-height:100%; padding:24px;
             display:flex; align-items:center; justify-content:center; }
@@ -59,13 +62,40 @@ async () => {
             <button type="button" data-action="close" aria-label="전체화면 닫기" title="닫기 (Esc)">✕</button>
         </header>
         <div class="viewport" tabindex="0" role="region" aria-label="다이어그램 스크롤 영역"><div class="canvas"></div></div>
-        <footer>드래그로 이동 · 휠로 스크롤 · Ctrl+휠로 확대/축소 · Esc 닫기</footer>
+        <footer>글자 드래그 → Ctrl+C 복사 · Ctrl+A 전체 선택 · 빈 공간 또는 Space+드래그로 이동 · Ctrl+휠 확대/축소 · Esc 닫기</footer>
     </div>`;
     shadow.querySelector('.canvas').appendChild(svg);
     const viewport = shadow.querySelector('.viewport');
     const output = shadow.querySelector('output');
     let scale = 1, fitted = true, closed = false, nativeFullscreen = false;
-    let drag = null, suppressClick = false;
+    let drag = null, suppressClick = false, spacePressed = false;
+    function releaseSpace() {
+        spacePressed = false;
+        viewport.classList.remove('space-pressed');
+        endDrag();
+    }
+    shadow.addEventListener('keydown', event => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+            event.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(svg);
+            const selection = shadow.getSelection?.() || window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        } else if (event.code === 'Space' && !event.target.closest('button,input,textarea,select')) {
+            event.preventDefault();
+            spacePressed = true;
+            viewport.classList.add('space-pressed');
+        }
+    });
+    shadow.addEventListener('keyup', event => { if (event.code === 'Space') releaseSpace(); });
+    shadow.addEventListener('copy', event => {
+        const selection = shadow.getSelection?.() || window.getSelection();
+        if (selection?.toString() && event.clipboardData) {
+            event.clipboardData.setData('text/plain', selection.toString());
+            event.preventDefault();
+        }
+    });
     function endDrag(event) {
         if (!drag || (event?.pointerId !== undefined && event.pointerId !== drag.id)) return;
         const previous = drag;
@@ -97,7 +127,7 @@ async () => {
         if (closed) return;
         closed = true;
         endDrag();
-        window.removeEventListener('blur', endDrag);
+        window.removeEventListener('blur', releaseSpace);
         observer.disconnect();
         document.removeEventListener('fullscreenchange', fullscreenChanged);
         if (document.fullscreenElement === host) await document.exitFullscreen().catch(() => {});
@@ -125,6 +155,10 @@ async () => {
     viewport.addEventListener('pointerdown', event => {
         if (!event.isPrimary || event.button !== 0 ||
             event.target.closest('a,button,input,textarea,select')) return;
+        if (event.pointerType === 'touch') return;
+        viewport.focus({preventScroll:true});
+        if (!spacePressed && event.target.closest('text,tspan,foreignObject')) return;
+        if (spacePressed) event.preventDefault();
         suppressClick = false;
         drag = {id:event.pointerId, x:event.clientX, y:event.clientY,
             left:viewport.scrollLeft, top:viewport.scrollTop, moved:false};
@@ -150,8 +184,8 @@ async () => {
         event.stopPropagation();
         suppressClick = false;
     }, true);
-    viewport.addEventListener('dragstart', event => event.preventDefault());
-    window.addEventListener('blur', endDrag);
+    viewport.addEventListener('dragstart', event => { if (drag) event.preventDefault(); });
+    window.addEventListener('blur', releaseSpace);
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
     document.addEventListener('fullscreenchange', fullscreenChanged);
     document.body.appendChild(dialog);
