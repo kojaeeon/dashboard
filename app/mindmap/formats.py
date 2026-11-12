@@ -35,6 +35,7 @@ def export_graph(value, format):
     if format == 'dot':
         lines = ['digraph ServiceMap {', '  rankdir=LR;', '  node [shape=box, style=rounded];',
                  '  kja_root=' + q(aliases[graph['root']]) + ';', '  kja_view=' + q(encode(graph['view'])) + ';']
+        lines.append('  kja_summaries=' + q(encode(graph['summaries'])) + ';')
         for node in nodes:
             metadata = {k: v for k, v in node.items() if k != 'label'}
             lines.append(f'  {aliases[node["id"]]} [label={q(node["label"])}, kja_meta={q(encode(metadata))}];')
@@ -45,6 +46,7 @@ def export_graph(value, format):
     if format not in {'flowchart', 'mindmap'}:
         raise ValueError('지원하지 않는 출력 형식입니다.')
     lines = [f'%% kja-root {aliases[graph["root"]]}', f'%% kja-view {encode(graph["view"])}']
+    lines.append('%% kja-summaries ' + encode(graph['summaries']))
     for node in nodes:
         lines.append(f'%% kja-node {aliases[node["id"]]} {encode({k: v for k, v in node.items() if k != "label"})}')
     for i, edge in enumerate(edges):
@@ -153,6 +155,8 @@ def import_dot(source, warnings):
     if graph.get_attributes().get('kja_view'):
         result['view'] = decode(unquote(graph.get_attributes()['kja_view']))
     warnings.append('DOT의 배치 명령과 복잡한 스타일은 Mind Elixir에서 다시 배치합니다. 그룹은 그룹 노드로 변환합니다.')
+    if graph.get_attributes().get('kja_summaries'):
+        result['summaries'] = decode(unquote(graph.get_attributes()['kja_summaries']))
     return Graph.model_validate(result).model_dump()
 
 
@@ -211,7 +215,7 @@ def import_mermaid(source, warnings):
     if fence:
         source = fence[1]
     node_meta, edge_meta, full_relations = {}, {}, []
-    root_alias, view = None, None
+    root_alias, view, summaries = None, None, []
     lines = []
     for line in source.splitlines():
         stripped = line.strip()
@@ -223,6 +227,8 @@ def import_mermaid(source, warnings):
             edge_meta[key] = decode(value)
         elif stripped.startswith('%% kja-root '):
             root_alias = stripped.split()[-1]
+        elif stripped.startswith('%% kja-summaries '):
+            summaries = decode(stripped.split()[-1])
         elif stripped.startswith('%% kja-view '):
             view = decode(stripped.split()[-1])
         elif stripped.startswith('%% kja-relation '):
@@ -304,6 +310,7 @@ def import_mermaid(source, warnings):
         # Preserve visible hierarchy and restore only non-tree relationships.
         edges = full_relations
     result = restore_network(nodes, edges, ids.get(root_alias))
+    result['summaries'] = summaries
     if view:
         result['view'] = view
     warnings.append('Mermaid의 표현 가능한 노드·계층·관계를 가져왔습니다. 배치와 지원하지 않는 스타일은 다시 지정하세요.')

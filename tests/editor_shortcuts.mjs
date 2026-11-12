@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 const source = readFileSync(new URL('../app/common/mindmap.js', import.meta.url), 'utf8')
-    .replace(/^import .*?;\n/, '');
+    .replace(/^import .*?;\r?\n/, '');
 const {default: component} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const clone = x => structuredClone(x);
 function setup() {
@@ -167,4 +167,37 @@ test('paste generates IDs on HTTP origins without crypto.randomUUID', () => {
         assert.equal(vm.graph.nodes.length,6);
         assert.equal(new Set(vm.graph.nodes.map(n=>n.id)).size,6);
     } finally {Object.defineProperty(globalThis,'crypto',descriptor)}
+});
+
+test('node search matches metadata, Unicode and multiple literal words',()=>{
+ const match=component.methods.matchNodes;
+ const nodes=[{id:'a',label:'CustomerAPI',type:'Service',description:'고객 조회',file:'src/main/Customer.java'},
+ {id:'b',label:'Queue[1]',type:'Worker',description:'알림 전송',file:'jobs/notify.py'}];
+ assert.deepEqual(match(nodes,'ＣＵＳＴＯＭＥＲ service').map(n=>n.id),['a']);
+ assert.deepEqual(match(nodes,'고객 조회').map(n=>n.id),['a']);
+ assert.deepEqual(match(nodes,'notify.py').map(n=>n.id),['b']);
+ assert.deepEqual(match(nodes,'[1]').map(n=>n.id),['b']);
+ assert.equal(match(nodes,'missing').length,0);assert.equal(match(nodes,'  ').length,0);
+});
+
+test('relationship focus includes both directions and hierarchy, not transitive neighbors',()=>{
+ const {graph}=setup();const result=component.methods.relationContext(graph,'child');
+ assert.deepEqual([...result.ids].sort(),['child','parent']);
+ assert.deepEqual(result.edges.map(e=>e.id),['b','inside']);
+});
+
+test('jump reveals only ancestors, retains graph metadata and centers selected node',async()=>{
+ const {vm,graph}=setup();graph.nodes.find(n=>n.id==='parent').expanded=false;
+ graph.nodes.find(n=>n.id==='target').expanded=false;vm.graph=clone(graph);
+ let captures=0,moved;
+ vm.$nextTick=async()=>{};vm.show=async g=>{vm.graph=clone(g)};vm.capture=()=>captures++;
+ vm.paintRelations=()=>{};vm.mind.clearSelection=()=>{};
+ vm.mind.findEle=id=>({nodeObj:{id},getBoundingClientRect:()=>({left:20,top:30,width:40,height:20})});
+ vm.mind.container={getBoundingClientRect:()=>({left:0,top:0,width:200,height:200})};
+ vm.mind.move=(x,y)=>moved=[x,y];await vm.jumpToNode('child',2);
+ assert.equal(vm.graph.nodes.find(n=>n.id==='parent').expanded,true);
+ assert.equal(vm.graph.nodes.find(n=>n.id==='target').expanded,false);
+ assert.equal(vm.graph.nodes.find(n=>n.id==='child').description,'설명');
+ assert.equal(captures,1);assert.equal(vm.selected,'child');assert.equal(vm.searchIndex,2);
+ assert.deepEqual(moved,[60,60]);
 });

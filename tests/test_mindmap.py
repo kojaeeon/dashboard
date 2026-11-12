@@ -48,3 +48,35 @@ def test_invalid_graph_is_not_stored(tmp_path):
     graph=example_graph();graph['edges'][0]['target']='missing'
     with pytest.raises(ValueError):store.save('bad',graph)
     assert not store.list()
+
+@pytest.mark.parametrize('kind',['dot','flowchart','mindmap','json'])
+def test_summary_roundtrip_and_sqlite(kind, tmp_path):
+    graph=example_graph()
+    graph['summaries']=[{'id':'summary1','parent':'root','start':0,'end':1,
+                         'label':'고객 처리 요약','style':{'stroke':'#123456','labelColor':'#abcdef'}}]
+    original=Graph.model_validate(graph).model_dump()
+    converted,_=import_graph(export_graph(original,kind),kind)
+    assert converted['summaries']==original['summaries']
+    store=MindMapStore(Database(str(tmp_path/'summary.db')))
+    key,_=store.save('summary',converted)
+    assert store.get(key)['graph']['summaries']==original['summaries']
+
+
+def test_summary_rejects_missing_parent_and_invalid_range():
+    graph=example_graph()
+    for parent,start,end in [('missing',0,0),('root',0,99),('root',2,1)]:
+        graph['summaries']=[{'id':'s','parent':parent,'start':start,'end':end}]
+        with pytest.raises(ValueError):Graph.model_validate(graph)
+
+@pytest.mark.parametrize('shape',['diamond','cylinder','hexagon','document'])
+def test_custom_shapes_preserve_type_and_override(shape,tmp_path):
+    store=MindMapStore(Database(str(tmp_path/'shapes.db')))
+    store.save_type({'name':'Custom','style':{'shape':shape,'background':'#223344'}})
+    graph=example_graph();graph['nodes'][1]['type']='Custom';graph['nodes'][2]['overrides']['shape']=shape
+    key,_=store.save('shapes',graph)
+    restored=store.get(key)['graph']
+    assert next(t for t in store.types() if t['name']=='Custom')['style']['shape']==shape
+    for kind in ['dot','mindmap','flowchart','json']:
+        imported,_=import_graph(export_graph(restored,kind),kind)
+        assert next(n for n in imported['nodes'] if n['id']=='service')['overrides']['shape']==shape
+        assert next(n for n in imported['nodes'] if n['id']=='controller')['type']=='Custom'

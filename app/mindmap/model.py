@@ -11,7 +11,7 @@ class Style(BaseModel):
     color: str | None = None
     border_color: str | None = None
     font_size: int | None = Field(default=None, ge=10, le=40)
-    shape: Literal['rounded', 'rectangle', 'pill', 'ellipse'] | None = None
+    shape: Literal['rounded', 'rectangle', 'pill', 'ellipse', 'diamond', 'cylinder', 'hexagon', 'document'] | None = None
     icon: str | None = Field(default=None, max_length=12)
 
     @field_validator('background', 'color', 'border_color')
@@ -60,6 +60,22 @@ class Edge(BaseModel):
     bidirectional: bool = False
 
 
+class SummaryStyle(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    stroke: str = Field(default='#b89a60', pattern=r'^#[0-9a-fA-F]{6}$')
+    labelColor: str = Field(default='#eee9de', pattern=r'^#[0-9a-fA-F]{6}$')
+
+
+class Summary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    id: str = Field(min_length=1, max_length=100, pattern=r'^[A-Za-z0-9_-]+$')
+    parent: str
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    label: str = Field(default='요약', min_length=1, max_length=1000)
+    style: SummaryStyle = Field(default_factory=SummaryStyle)
+
+
 class View(BaseModel):
     direction: int = Field(default=1, ge=0, le=3)
     scale: float = Field(default=1, ge=.1, le=8, allow_inf_nan=False)
@@ -75,6 +91,7 @@ class Graph(BaseModel):
     root: str
     nodes: list[Node] = Field(min_length=1, max_length=2000)
     edges: list[Edge] = Field(default_factory=list, max_length=5000)
+    summaries: list[Summary] = Field(default_factory=list, max_length=1000)
     view: View = Field(default_factory=View)
 
     @model_validator(mode='after')
@@ -104,6 +121,11 @@ class Graph(BaseModel):
             stack.extend((child, depth + 1) for child in children[node])
         if visited != ids:
             raise ValueError('모든 노드를 루트 계층에 연결하세요. 추가 관계는 별도로 지정할 수 있습니다.')
+        if len({item.id for item in self.summaries}) != len(self.summaries):
+            raise ValueError('요약 ID가 중복되었습니다.')
+        for item in self.summaries:
+            if item.parent not in ids or not 0 <= item.start <= item.end < len(children[item.parent]):
+                raise ValueError('요약의 대상 계층 범위가 올바르지 않습니다.')
         return self
 
 
