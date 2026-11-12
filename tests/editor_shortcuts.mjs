@@ -85,3 +85,86 @@ test('Ctrl+A selects all nodes, while text editing retains native select-all', (
     assert(key.prevented);assert.equal(vm.mind.currentNodes.length,4);
     const input={...event(true),ctrlKey:true,key:'a'};vm.key(input);assert(!input.prevented);
 });
+
+function menuRefs(vm) {
+    const menu={hidden:false};let focused=0;
+    vm.$refs={canvas:{querySelector:()=>menu},root:{focus(){focused++}}};
+    return {menu,focused:()=>focused};
+}
+function shortcut(event,key,shiftKey=true) {
+    return {...event(),ctrlKey:true,shiftKey,key,clipboardData:undefined};
+}
+test('Ctrl+Shift+C/V copies and pastes without browser clipboard events or API', async () => {
+    const {vm,event,element}=setup();menuRefs(vm);
+    const descriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+    Object.defineProperty(globalThis,'navigator',{value:{},configurable:true});
+    try {
+        const copy=shortcut(event,'C');vm.key(copy);
+        assert(copy.prevented&&copy.stopped);
+        assert.match(vm.message,/2개 노드를 복사/);
+        vm.mind.currentNodes=[element('target')];
+        const paste=shortcut(event,'V');vm.key(paste);
+        assert(paste.prevented&&paste.stopped);
+        assert.equal(vm.graph.nodes.length,6);
+        assert.equal(vm.commits,1);
+        // Holding the shortcut does not duplicate the subtree repeatedly.
+        vm.key({...shortcut(event,'V'),repeat:true});
+        assert.equal(vm.commits,1);
+    } finally {
+        if(descriptor)Object.defineProperty(globalThis,'navigator',descriptor);
+        else delete globalThis.navigator;
+    }
+});
+test('context menu copies right-click selection and pastes under the current target', async () => {
+    const {vm,element}=setup();const refs=menuRefs(vm);
+    const options=vm.contextMenuOptions();
+    assert.deepEqual(options.extend.map(x=>x.name),['복사','붙여넣기']);
+    assert.deepEqual(options.extend.map(x=>x.key),['Ctrl+Shift+C','Ctrl+Shift+V']);
+    options.extend[0].onclick();
+    assert(refs.menu.hidden);assert.equal(refs.focused(),1);
+    vm.mind.currentNodes=[element('target')];
+    await options.extend[1].onclick();
+    assert.equal(vm.graph.nodes.length,6);
+    assert.equal(refs.focused(),2);
+});
+test('Ctrl+C/V also works when Clipboard API rejects permission', async () => {
+    const {vm,event,element}=setup();menuRefs(vm);
+    const descriptor=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+    Object.defineProperty(globalThis,'navigator',{value:{clipboard:{
+        writeText:async()=>{throw Error('NotAllowedError')},
+        readText:async()=>{throw Error('NotAllowedError')},
+    }},configurable:true});
+    try {
+        vm.key(shortcut(event,'c',false));
+        vm.mind.currentNodes=[element('target')];
+        vm.key(shortcut(event,'v',false));
+        await Promise.resolve();
+        assert.equal(vm.graph.nodes.length,6);
+    } finally {
+        if(descriptor)Object.defineProperty(globalThis,'navigator',descriptor);
+        else delete globalThis.navigator;
+    }
+});
+test('node shortcuts leave text fields alone and support Cmd modifiers', () => {
+    const {vm,event,element}=setup();menuRefs(vm);
+    for(const key of ['c','v']) {
+        const input={...event(true),ctrlKey:true,shiftKey:true,key};
+        vm.key(input);assert(!input.prevented);
+    }
+    vm.key({...event(),metaKey:true,shiftKey:true,key:'C'});
+    vm.mind.currentNodes=[element('target')];
+    vm.key({...event(),metaKey:true,shiftKey:true,key:'V'});
+    assert.equal(vm.commits,1);
+});
+test('paste generates IDs on HTTP origins without crypto.randomUUID', () => {
+    const {vm,event,element}=setup();vm.copyNodes(event());
+    vm.mind.currentNodes=[element('target')];
+    const descriptor=Object.getOwnPropertyDescriptor(globalThis,'crypto');
+    const getRandomValues=globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+    Object.defineProperty(globalThis,'crypto',{value:{getRandomValues},configurable:true});
+    try {
+        vm.pasteNodes(event());
+        assert.equal(vm.graph.nodes.length,6);
+        assert.equal(new Set(vm.graph.nodes.map(n=>n.id)).size,6);
+    } finally {Object.defineProperty(globalThis,'crypto',descriptor)}
+});
