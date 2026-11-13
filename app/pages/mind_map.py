@@ -143,13 +143,34 @@ def render(db):
         snapshot = await editor.run_method('getSnapshot')
         with ui.dialog() as dialog, ui.card().classes('w-[850px] max-w-full'):
             ui.label('마인드맵 내보내기').classes('text-lg')
-            kind = ui.select({'dot': 'DOT', 'flowchart': 'Mermaid flowchart', 'mindmap': 'Mermaid mindmap', 'json': 'KJA JSON'}, value='dot', label='출력 형식')
+            kind = ui.select({'dot': 'DOT', 'flowchart': 'Mermaid flowchart', 'mindmap': 'Mermaid mindmap', 'json': 'KJA JSON', 'png': 'PNG 이미지'}, value='dot', label='출력 형식')
             source = ui.textarea('출력 코드', value=export_graph(snapshot['graph'], 'dot')).props('readonly outlined').classes('w-full').style('min-height:330px')
-            kind.on_value_change(lambda e: source.set_value(export_graph(snapshot['graph'], e.value)))
-            ui.label('KJA 메타데이터 주석으로 유형·스타일·관계를 보존합니다. Mermaid mindmap의 추가 관계는 다른 뷰어에 표시되지 않습니다.').classes('text-xs opacity-60')
+            hint = ui.label('KJA 메타데이터 주석으로 유형·스타일·관계를 보존합니다. Mermaid mindmap의 추가 관계는 다른 뷰어에 표시되지 않습니다.').classes('text-xs opacity-60')
+            def change_format(e):
+                is_png = e.value == 'png'
+                source.set_visibility(not is_png)
+                copy_button.set_visibility(not is_png)
+                hint.set_text('현재 펼침 상태의 전체 맵을 PNG로 저장합니다. 화면 밖 노드·연결선도 포함합니다.' if is_png else 'KJA 메타데이터 주석으로 유형·스타일·관계를 보존합니다. Mermaid mindmap의 추가 관계는 다른 뷰어에 표시되지 않습니다.')
+                if not is_png:
+                    source.set_value(export_graph(snapshot['graph'], e.value))
+            kind.on_value_change(change_format)
+            async def download():
+                if kind.value != 'png':
+                    ui.download.content(source.value, f'mindmap.{"dot" if kind.value == "dot" else "json" if kind.value == "json" else "mmd"}')
+                    return
+                download_button.disable()
+                try:
+                    filename = ''.join('_' if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in (title.value or 'mindmap')).strip(' .') or 'mindmap'
+                    result = await editor.run_method('exportPng', f'{filename}.png', timeout=60)
+                    if not result or not result.get('ok'):
+                        ui.notify((result or {}).get('error', 'PNG 내보내기에 실패했습니다.'), type='negative')
+                except TimeoutError:
+                    ui.notify('PNG 변환 시간이 초과되었습니다. 다시 시도하세요.', type='negative')
+                finally:
+                    download_button.enable()
             with ui.row():
-                ui.button('코드 복사', icon='content_copy', on_click=lambda: ui.clipboard.write(source.value))
-                ui.button('다운로드', icon='download', on_click=lambda: ui.download.content(source.value, f'mindmap.{"dot" if kind.value == "dot" else "json" if kind.value == "json" else "mmd"}'))
+                copy_button = ui.button('코드 복사', icon='content_copy', on_click=lambda: ui.clipboard.write(source.value))
+                download_button = ui.button('다운로드', icon='download', on_click=download)
                 ui.button('닫기', on_click=dialog.close).props('flat')
         dialog.open()
 

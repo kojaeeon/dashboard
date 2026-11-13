@@ -39,6 +39,53 @@ export default {
  data(){return {ready:false,dirty:false,selected:null,searchQuery:'',searchIndex:-1,searchOpen:false,highlightRelations:false,summaryId:null,summaryForm:{},summaries:[],form:{},custom:false,style:{},localTypes:clone(this.types),panel:'node',inspectorCollapsed:false,panelId:uid(),direction:1,percent:100,history:[],cursor:-1,nodes:[],relations:[],message:'',typeForm:{name:'',style:{background:'#222b24',color:'#eee9de',border_color:'#b89a60',font_size:15,shape:'rounded',icon:'◇'}},relation:{target:'',kind:'참조',label:'',color:'#b89a60',dashed:true,bidirectional:false}}},
  computed:{searchMatches(){return this.matchNodes(this.nodes,this.searchQuery)}},
  methods:{
+ async exportPng(filename='mindmap.png'){
+  try{
+   if(!this.ready)throw new Error('마인드맵 로딩이 끝난 뒤 다시 시도하세요.');
+   await document.fonts.ready;
+   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+   const map=this.mind.map,origin=map.getBoundingClientRect(),scale=this.mind.scaleVal;
+   const boxes=Array.from(map.querySelectorAll('.me-tpc,.svg-label,svg path'))
+    .filter(el=>!el.closest('defs,.linkcontroller')&&getComputedStyle(el).visibility!=='hidden')
+    .map(el=>el.getBoundingClientRect()).filter(r=>r.width||r.height);
+   if(!boxes.length)throw new Error('내보낼 노드가 없습니다.');
+   const pad=32,left=(Math.min(...boxes.map(r=>r.left))-origin.left)/scale-pad;
+   const top=(Math.min(...boxes.map(r=>r.top))-origin.top)/scale-pad;
+   const width=Math.ceil((Math.max(...boxes.map(r=>r.right))-origin.left)/scale-left+pad);
+   const height=Math.ceil((Math.max(...boxes.map(r=>r.bottom))-origin.top)/scale-top+pad);
+   // Inline styles so the image also works without network access or external CSS.
+   const copy=map.cloneNode(true),originals=[map,...map.querySelectorAll('*')],copies=[copy,...copy.querySelectorAll('*')];
+   originals.forEach((el,i)=>{
+    const style=getComputedStyle(el),target=copies[i];
+    target.removeAttribute('style');
+    for(const property of style)target.style.setProperty(property,style.getPropertyValue(property));
+    target.style.animation='none';target.style.transition='none';
+   });
+   copy.querySelectorAll('.linkcontroller,.circle,.mm-relation-overlay,me-epd').forEach(el=>el.remove());
+   copy.querySelectorAll('.selected,.mm-focus-node,.mm-related').forEach(el=>{el.style.outline='none';el.style.boxShadow='none'});
+   // Export the complete map without temporary selection/relation dimming.
+   copy.querySelectorAll('.mm-muted,.lines,.subLines,.summary,.svg-label').forEach(el=>el.style.opacity='1');
+   Object.assign(copy.style,{position:'absolute',left:`${-left}px`,top:`${-top}px`,margin:'0',transform:'none',transformOrigin:'0 0',overflow:'visible'});
+   const wrapper=document.createElement('div');wrapper.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+   Object.assign(wrapper.style,{position:'relative',width:`${width}px`,height:`${height}px`,overflow:'hidden',background:'#18221e'});
+   wrapper.appendChild(copy);
+   const markup=new XMLSerializer().serializeToString(wrapper);
+   const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
+   const img=new Image();
+   await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('이미지 변환에 실패했습니다.'));img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)});
+   // Keep large maps within browser canvas and memory limits.
+   const ratio=Math.min(2,8192/width,8192/height,Math.sqrt(32000000/(width*height)));
+   const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.floor(width*ratio));canvas.height=Math.max(1,Math.floor(height*ratio));
+   const ctx=canvas.getContext('2d');if(!ctx)throw new Error('이미지 캔버스를 만들 수 없습니다.');
+   ctx.drawImage(img,0,0,canvas.width,canvas.height);
+   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+   if(!blob)throw new Error('PNG 파일을 만들 수 없습니다.');
+   const url=URL.createObjectURL(blob),link=document.createElement('a');
+   link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
+   setTimeout(()=>URL.revokeObjectURL(url),60000);
+   return {ok:true};
+  }catch(e){return {ok:false,error:String(e.message||e)}}
+ },
  async toggleInspector(){
   const before=this.mind?.container.getBoundingClientRect();this.inspectorCollapsed=!this.inspectorCollapsed;
   await this.$nextTick();if(!this.ready||!before)return;
