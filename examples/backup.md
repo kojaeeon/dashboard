@@ -12,7 +12,9 @@ backup:
   scope: all
 files:
   - source: src/main/resources/mappers/HelloMapper.xml
+    target: /srv/app/mappers/HelloMapper.xml
   - source: src/main/webapp/js/hello.js
+    target: /srv/app/js/hello.js
 rules:
   - name: java
     root: src/main/java
@@ -54,4 +56,29 @@ ZIP 이름은 `title_YYYYMMDD_HHMMSS_ffffff.zip`이며 한국 시간입니다.
 계획 후 원본이 바뀌면 실패한 ZIP을 삭제하고 재계획을 요청합니다.
 결과는 `data/backup_runs/<실행 ID>/result.json`에 기록됩니다.
 
-기존 MD의 `deploy`, `files.target`, `rules.target`은 백업에 사용하지 않습니다.
+기존 MD의 `deploy`, `files.target`, `rules.target`은 ZIP 백업에 사용하지 않습니다.
+
+## FTP COPY (SFTP 전송)
+
+프론트메터에 아래 `sftp` 항목을 추가한 후 **FTP COPY**를 누릅니다.
+백업 범위와 관계없이 `files`의 모든 `source`를 해당 `target`으로 업로드합니다.
+`source`는 프로젝트 기준 상대 파일 경로, `target`은 원격 파일 경로입니다.
+원격 상위 폴더는 자동 생성하고 같은 이름의 파일은 덮어씁니다.
+전송은 순서대로 진행하며 오류가 발생하면 중단합니다. 이미 전송된 파일은 유지됩니다.
+
+```yaml
+sftp:
+  host: sftp.example.com
+  port: 22
+  username: deploy
+  password: "서버 비밀번호"
+  # private_key: ~/.ssh/id_ed25519  # 비밀번호 대신 개인 키 사용 가능
+  # passphrase: "개인 키 암호"
+  # known_hosts: ~/.ssh/known_hosts
+  timeout: 30
+```
+
+개인 키와 known_hosts의 상대 경로는 설정 기준 폴더에서 해석합니다.
+서버 호스트 키는 기본 `~/.ssh/known_hosts` 또는 지정한 `known_hosts`에 등록되어 있어야 합니다.
+접속 정보는 MD에서만 읽으며 전송 결과 JSON에 비밀번호와 개인 키 암호를 저장하지 않습니다.
+실제 접속 정보를 넣은 문서는 버전 관리에서 제외하세요.

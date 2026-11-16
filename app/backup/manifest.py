@@ -3,12 +3,12 @@ from pathlib import PurePosixPath
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 import yaml
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', hide_input_in_errors=True)
 
 
 class Project(StrictModel):
@@ -36,12 +36,24 @@ class Backup(StrictModel):
     scope: Literal['all', 'files', 'categories'] = 'all'
 
 
+class Sftp(StrictModel):
+    host: str = Field(min_length=1)
+    port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(min_length=1)
+    password: SecretStr | None = None
+    private_key: str | None = None
+    passphrase: SecretStr | None = None
+    known_hosts: str | None = None
+    timeout: float = Field(default=30, gt=0, le=300)
+
+
 class Manifest(StrictModel):
     title: str = Field(min_length=1)
     project: Project
     files: list[FileMapping] = Field(default_factory=list)
     rules: list[Rule] = Field(default_factory=list)
     backup: Backup = Field(default_factory=Backup)
+    sftp: Sftp | None = None
 
     @model_validator(mode='before')
     @classmethod

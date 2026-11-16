@@ -7,6 +7,7 @@ from app.common.local_library import markdown_files
 from app.backup.executor import execute_plan
 from app.backup.manifest import parse_manifest
 from app.backup.planner import ROOT, build_plan
+from app.backup.sftp import build_copy_plan, execute_copy
 
 SAMPLE_PATH = ROOT / 'examples' / 'backup.md'
 
@@ -14,7 +15,7 @@ SAMPLE_PATH = ROOT / 'examples' / 'backup.md'
 def render(db):
     ui.label('BACKUP STUDIO').classes('eyebrow')
     ui.label('백업').classes('page-title')
-    ui.label('백업할 파일을 확인하고 ZIP으로 저장하세요.').classes('text-gray-500')
+    ui.label('ZIP 백업 또는 프론트메터의 files 목록을 SFTP로 복사하세요.').classes('text-gray-500')
     state = {'plan': None, 'busy': False}
     updates = SimpleQueue()
 
@@ -101,6 +102,7 @@ def render(db):
                     plan_button = ui.button('계획 만들기', icon='fact_check')
                     execute_button = ui.button('ZIP 백업 실행', icon='play_arrow')
                     execute_button.disable()
+                    ftp_button = ui.button('FTP COPY', icon='upload_file').props('no-caps')
                     spinner = ui.spinner(size='sm')
                     spinner.set_visibility(False)
                 message = ui.label('').classes('text-sm whitespace-pre-wrap break-all')
@@ -109,13 +111,14 @@ def render(db):
             table = ui.table(columns=[
                 {'name': key, 'label': label, 'field': key, 'align': 'left'}
                 for key, label in [('category', '유형'), ('source', '프로젝트 상대 경로'),
+                                   ('target', '대상 경로'),
                                    ('bytes', '바이트'), ('status', '처리'), ('sha256', 'SHA256')]],
                 rows=[], row_key='target', pagination=15).classes('w-full')
             downloads = ui.column().classes('w-full')
 
     def busy(value):
         state['busy'] = value
-        for control in (file_select, uploader, base, source, apply_button, scope, category_select, plan_button):
+        for control in (file_select, uploader, base, source, apply_button, scope, category_select, plan_button, ftp_button):
             control.set_enabled(not value)
         execute_button.set_enabled(not value and state['plan'] is not None)
         spinner.set_visibility(value)
@@ -178,6 +181,39 @@ def render(db):
             while not updates.empty():
                 updates.get()
 
+    async def ftp_copy():
+        if state['busy']:
+            return
+        invalidate()
+        busy(True)
+        downloads.clear()
+        table.rows = []
+        table.update()
+        summary.set_text('')
+        warnings.set_text('')
+        message.set_text('SFTP 파일 복사를 준비하고 있습니다.')
+        try:
+            manifest = parse_manifest(source.value or '')
+            plan = await run.io_bound(build_copy_plan, manifest, base.value)
+            summary.set_text(f'{manifest.title} · SFTP · {len(plan.files)}개\n'
+                             f'서버: {manifest.sftp.host}:{manifest.sftp.port}')
+            result = await run.io_bound(execute_copy, plan, progress=updates.put)
+            labels = {'passed': '성공', 'failed': '실패', 'skipped': '건너뜀'}
+            table.rows = [dict(file, sha256=file['sha256'][:12], status=labels.get(file['status'], file['status']))
+                          for file in result['files']]
+            table.update()
+            count = sum(file['status'] == 'passed' for file in result['files'])
+            message.set_text(f'FTP COPY {labels[result["status"]]} · {count}/{len(result["files"])}개 완료\n{result["error"]}')
+            with downloads:
+                ui.button('전송 결과 JSON', icon='download',
+                          on_click=lambda: ui.download(result['report_path'])).props('flat no-caps')
+        except (OSError, ValueError) as exc:
+            message.set_text(str(exc))
+        finally:
+            busy(False)
+            while not updates.empty():
+                updates.get()
+
     def show_progress():
         latest = None
         try:
@@ -190,6 +226,7 @@ def render(db):
 
     plan_button.on_click(make_plan)
     execute_button.on_click(execute)
+    ftp_button.on_click(ftp_copy)
     ui.timer(.3, show_progress)
     configure()
 

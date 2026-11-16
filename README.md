@@ -157,7 +157,10 @@ step:
 모든 범위에서 프로젝트 상대 경로를 유지합니다. 지정 파일은 `files.source`,
 유형별은 선택한 `rules`의 root/include/exclude로 파일을 수집합니다.
 기존 MD의 `deploy` 및 target 설정은 무시하므로 문서를 그대로 불러와 백업할 수 있습니다.
-Copy·FTP 전송 기능은 제거되었습니다.
+**FTP COPY** 버튼은 프론트메터의 `sftp` 접속 정보로 연결하여
+`files.source`를 `files.target` 원격 경로에 복사합니다. 백업 범위와 관계없이 지정 파일만 전송하며
+원격 상위 폴더를 자동 생성하고 기존 파일은 덮어씁니다. 오류 시 후속 파일 전송을 중단합니다.
+비밀번호·개인 키 인증과 known_hosts 검증을 지원합니다. 설정 예시는 `examples/backup.md` 본문을 참고하세요.
 
 각 실행은 한국 시간 기준 `title_YYYYMMDD_HHMMSS_ffffff.zip`을 생성하며 기존 ZIP을 덮어쓰지 않습니다.
 계획 이후 원본이 바뀌면 실패한 ZIP을 삭제하므로 계획을 다시 만들어야 합니다.
