@@ -20,9 +20,9 @@ def build_menu(*, app_theme, mermaid_theme, mermaid_themes,
         work_tab = ui.tab('Work', icon='task_alt')
         schedule_tab = ui.tab('일정', icon='calendar_month')
         test_tab = ui.tab('UI_TEST', icon='science')
-        deploy_tab = ui.tab('배포/백업', icon='drive_file_move')
+        backup_tab = ui.tab('백업', icon='archive')
         code_gen_tab = ui.tab('code_gen', icon='code')
         mind_map_tab = ui.tab('마인드맵', icon='account_tree')
-    return tabs, md_tab, work_tab, test_tab, deploy_tab, schedule_tab, code_gen_tab, mind_map_tab
+    return tabs, md_tab, work_tab, test_tab, backup_tab, schedule_tab, code_gen_tab, mind_map_tab
 
 

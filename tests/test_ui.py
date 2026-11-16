@@ -30,10 +30,12 @@ async def test_document_and_work_flow(user, tmp_path, monkeypatch):
     user.find('UI_TEST').click()
     await user.should_see('프론트메터로 정의하는 UI 테스트')
     await user.should_see('9단계 · 프론트메터 검증 완료')
-    user.find('배포/백업').click()
+    user.find(kind=ui.tab, content='백업').click()
     await user.should_see('프론트메터 설정')
-    user.find('계획 만들기').click()
-    await user.should_see('계획 확인 완료 · 위 실행 버튼으로 이 파일들을 처리합니다.')
+    await user.should_not_see('배포 타깃 루트')
+    await user.should_not_see('배포 실행')
+    user.find(kind=ui.button, content='계획 만들기').click()
+    await user.should_see('계획 확인 완료 · 위 실행 버튼으로 이 파일들을 처리합니다.', retries=30)
 
 
 @pytest.mark.asyncio
@@ -106,3 +108,40 @@ async def test_sqlite_save_uses_latest_browser_content(user, tmp_path):
         await asyncio.sleep(.01)
     assert len(db.list('documents')) == 1
     assert db.list('documents')[0]['content'] == latest['content']
+
+
+@pytest.mark.asyncio
+async def test_backup_page_creates_zip_and_requires_new_plan(user, tmp_path, monkeypatch):
+    import yaml
+    from zipfile import ZipFile
+    from app.pages import backup
+    from app.backup import executor
+
+    project = tmp_path / 'project'
+    project.mkdir()
+    (project / 'hello.txt').write_text('백업 내용', encoding='utf-8')
+    sample = tmp_path / 'backup.md'
+    sample.write_text('---\n' + yaml.safe_dump({
+        'title': 'UI 백업', 'project': {'root': str(project)},
+        'backup': {'directory': str(tmp_path / 'archives')},
+        'deploy': {'method': 'ftp'},
+    }) + '---\n', encoding='utf-8')
+    monkeypatch.setattr(backup, 'SAMPLE_PATH', sample)
+    monkeypatch.setattr(executor, 'ROOT', tmp_path)
+    db = Database(str(tmp_path / 'backup.db'))
+
+    @ui.page('/backup-only')
+    def backup_page():
+        backup.render(db)
+
+    await user.open('/backup-only')
+    user.find(kind=ui.button, content='계획 만들기').click()
+    await user.should_see('계획 확인 완료 · 위 실행 버튼으로 이 파일들을 처리합니다.', retries=30)
+    user.find(kind=ui.button, content='ZIP 백업 실행').click()
+    await user.should_see('성공 · 1/1개 완료', retries=30)
+    await user.should_see('백업 ZIP')
+    button = next(iter(user.find(kind=ui.button, content='ZIP 백업 실행').elements))
+    assert not button.enabled
+    with ZipFile(next((tmp_path / 'archives').glob('*.zip'))) as archive:
+        assert archive.read('hello.txt').decode('utf-8') == '백업 내용'
+    assert list((tmp_path / 'data/backup_runs').glob('*/result.json'))

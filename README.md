@@ -143,49 +143,26 @@ step:
 폐쇄망 배포 시에는 wheel뿐 아니라 같은 OS용 Playwright 브라우저 캐시도 함께 준비해야 합니다.
 
 
-## 배포/백업 · 프로젝트별 프론트메터
+## 백업 · 프로젝트별 프론트메터
 
-화면은 `app/pages/deploy_backup.py`, 공통 엔진은 `app/deployment/`에 있습니다.
-기본 설정과 사용법은 `examples/deploy-backup.md`에서 확인하세요.
-예시의 Copy 배포 대상은 실제 서버와 분리된 `data/deploy-demo`입니다.
+화면은 `app/pages/backup.py`, 공통 엔진은 `app/backup/`에 있습니다.
+설정 예시는 `examples/backup.md`를 확인하세요.
 
-1. MD를 선택하거나 불러오고 **설정 기준 폴더**를 확인합니다. 로컬 MD를 선택하면 그 파일의 폴더가 기준입니다.
-2. 프론트메터를 수정했으면 **설정 적용**을 누릅니다.
-3. ZIP 백업 또는 배포, 전체·파일별·유형별 범위를 선택합니다.
-4. **계획 만들기**에서 원본, 대상, 크기, SHA256, 덮어쓰기 여부를 확인합니다.
-5. **ZIP 백업 실행 / 배포 실행**을 누르고 결과 ZIP과 JSON을 받습니다.
+1. MD를 선택하거나 불러오고 **설정 기준 폴더**를 확인합니다.
+2. 프론트메터 수정 후 **설정 적용**을 누릅니다.
+3. 프로젝트 전체·지정 파일·유형별 전체 중 백업 범위를 선택합니다.
+4. **계획 만들기**에서 파일 목록, 크기, SHA256과 백업 폴더를 확인합니다.
+5. **ZIP 백업 실행**을 누르고 백업 ZIP과 실행 결과 JSON을 받습니다.
 
-전체 범위는 프로젝트 상대 경로를 유지합니다. 파일별은 `files`의 source→target 매핑을 사용합니다.
-유형별은 선택한 `rules`의 root/include/exclude/target으로 파일을 수집합니다.
-Java는 미리 빌드한 class와 내부 클래스를 함께 처리하고, MyBatis Mapper XML 및 SQL, JS, XFDL과 생성된 XFDL JS도 개별 경로 규칙으로 구성할 수 있습니다.
-실행형 Spring Boot는 서버 구성에 맞춰 class 대신 JAR 파일을 지정하세요.
-대시보드는 파일 백업과 전송을 수행하며 빌드, SQL 실행, 서버 재시작은 실행하지 않습니다.
+모든 범위에서 프로젝트 상대 경로를 유지합니다. 지정 파일은 `files.source`,
+유형별은 선택한 `rules`의 root/include/exclude로 파일을 수집합니다.
+기존 MD의 `deploy` 및 target 설정은 무시하므로 문서를 그대로 불러와 백업할 수 있습니다.
+Copy·FTP 전송 기능은 제거되었습니다.
 
-각 실행은 `title_YYYYMMDD_HHMMSS_ffffff.zip`을 생성합니다. 날짜는 한국 시간이며, 같은 이름의 기존 ZIP은 덮어쓰지 않습니다.
-배포는 이 ZIP의 내용을 전송하므로 파일별 전송 중 원본이 바뀌어도 패키지는 변하지 않습니다.
-배포 대상 서버의 기존 파일은 백업하지 않으며, ZIP에는 배포할 로컬 원본만 담습니다.
-로컬 대상은 계획 시의 SHA256도 비교하며, 원본 또는 로컬 대상이 바뀌면 계획을 다시 만들어야 합니다.
-백업 폴더와 배포 대상 폴더가 프로젝트 내부에 있으면 수집에서 제외하며, 프로젝트 밖으로 연결되는 링크는 수집하지 않습니다.
-
-FTP 설정은 `deploy.method: ftp`, `deploy.target_root`, `deploy.ftp`에 지정합니다. 기존 `deploy.destination`도 호환됩니다.
-`password_env`는 실제 비밀번호가 저장된 환경변수 이름입니다. 앱 시작 전 OS 환경변수나 `.env`에 설정하세요.
-FTP는 목록 조회·업로드·이름 변경·임시 파일 정리를 사용하며, 서버 파일을 다운로드하지 않습니다. FTPS는 `tls: true`로 설정합니다.
-SFTP는 이 메뉴에서 지원하지 않습니다. 예시 MD에는 FTP 설정 템플릿도 들어 있습니다.
-
-완료·실패 결과는 `data/deployments/<실행 ID>/result.json`에 저장됩니다.
-중간 실패 시 이미 완료된 전송은 유지하고 이후 파일은 건너뜁니다. 결과의 파일별 완료 상태를 확인하세요.
-테스트에는 임시 프로젝트와 로컬 FTP 서버를 사용하므로 실제 배포 서버에 접속하지 않습니다.
-
-```powershell
-# 동봉된 Java 예시를 다시 빌드할 때
-javac -d examples/deploy-demo/target/classes examples/deploy-demo/src/main/java/demo/Hello.java
-```
-
-
-`java`는 Java 소스, `class`는 컴파일된 클래스 유형입니다. 기본 배포는 class/sql/js/xfdl을 선택합니다.
-**배포 타깃 루트**는 화면에서도 수정할 수 있으며, 모든 파일과 유형의 target은 그 루트 기준 상대 경로입니다.
-예: target_root `/apps/myapp` + target `js/hello.js` → `/apps/myapp/js/hello.js`. 계획에 상대 경로와 실제 경로를 함께 표시합니다.
-
+각 실행은 한국 시간 기준 `title_YYYYMMDD_HHMMSS_ffffff.zip`을 생성하며 기존 ZIP을 덮어쓰지 않습니다.
+계획 이후 원본이 바뀌면 실패한 ZIP을 삭제하므로 계획을 다시 만들어야 합니다.
+백업 폴더와 실행 결과 폴더는 수집에서 제외하며 프로젝트 밖으로 연결되는 링크는 수집하지 않습니다.
+완료·실패 결과는 `data/backup_runs/<실행 ID>/result.json`에 저장됩니다.
 
 ## 공통 그리드 · WIQL 결과
 

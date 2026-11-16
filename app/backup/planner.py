@@ -4,9 +4,9 @@ import fnmatch
 from functools import lru_cache
 import hashlib
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-from app.deployment.manifest import Manifest, relative_path
+from app.backup.manifest import Manifest, relative_path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,7 +53,6 @@ class PlanFile:
     category: str
     size: int
     sha256: str
-    previous_sha256: str | None
 
 
 @dataclass
@@ -69,7 +68,7 @@ class Plan:
 
 
 def build_plan(manifest, base, operation='backup', scope=None, categories=None):
-    if operation not in {'backup', 'deploy'}:
+    if operation != 'backup':
         raise ValueError('지원하지 않는 작업입니다.')
     project = resolve_from(base, manifest.project.root)
     if not project.is_dir():
@@ -77,27 +76,12 @@ def build_plan(manifest, base, operation='backup', scope=None, categories=None):
     backup_dir = resolve_from(base, manifest.backup.directory)
     if project.is_relative_to(backup_dir):
         raise ValueError('백업 폴더는 프로젝트 루트 또는 그 상위 폴더와 다르게 지정하세요.')
-    deploy = manifest.deploy
-    if operation == 'deploy' and deploy is None:
-        raise ValueError('deploy 설정이 필요합니다.')
-    if deploy:
-        if not deploy.destination.strip() or any(c in deploy.destination for c in '\r\n\x00'):
-            raise ValueError('배포 타깃 루트를 지정하세요.')
-        if deploy.method == 'ftp':
-            relative_path(deploy.destination.lstrip('/') or '.', allow_dot=True)
-    scope = scope or (manifest.backup.scope if operation == 'backup' else deploy.scope)
+    scope = scope or manifest.backup.scope
     if scope not in {'all', 'files', 'categories'}:
         raise ValueError('전체 / 파일별 / 유형별 범위를 선택하세요.')
     destination = str(backup_dir)
-    copy_root = None
-    excluded_roots = [backup_dir, (ROOT / 'data' / 'deployments').resolve()]
-    if deploy and deploy.method == 'copy':
-        copy_root = resolve_from(base, deploy.destination)
-        if project.is_relative_to(copy_root):
-            raise ValueError('배포 대상은 프로젝트 루트 또는 그 상위 폴더와 다르게 지정하세요.')
-        excluded_roots.append(copy_root)
-    if operation == 'deploy':
-        destination = str(copy_root) if copy_root else deploy.destination
+    excluded_roots = [backup_dir, (ROOT / 'data' / 'backup_runs').resolve(),
+                      (ROOT / 'data' / 'deployments').resolve()]
 
     def allowed(path):
         if not path.is_relative_to(project):
@@ -124,16 +108,16 @@ def build_plan(manifest, base, operation='backup', scope=None, categories=None):
         selected = [(path, path.relative_to(project).as_posix(), 'all') for path in walk(project)]
     elif scope == 'files':
         if not manifest.files:
-            raise ValueError('files에 source / target 매핑을 작성하세요.')
+            raise ValueError('files에 백업할 source 경로를 작성하세요.')
         for mapping in manifest.files:
             path = checked_child(project, mapping.source)
             if not path.is_file() or not allowed(path):
                 raise ValueError(f'파일이 없거나 제외된 경로입니다: {mapping.source}')
-            selected.append((path, mapping.target or mapping.source, 'files'))
+            selected.append((path, path.relative_to(project).as_posix(), 'files'))
     else:
-        chosen = categories if categories is not None else (deploy.categories if deploy and deploy.categories else [r.name for r in manifest.rules])
+        chosen = categories if categories is not None else [r.name for r in manifest.rules]
         if not chosen:
-            raise ValueError('배포할 유형을 선택하세요.')
+            raise ValueError('백업할 유형을 선택하세요.')
         unknown = set(chosen) - {rule.name for rule in manifest.rules}
         if unknown:
             raise ValueError(f'정의되지 않은 유형: {", ".join(sorted(unknown))}')
@@ -146,7 +130,7 @@ def build_plan(manifest, base, operation='backup', scope=None, categories=None):
                 for path in walk(root):
                     relative = path.relative_to(root).as_posix()
                     if matches(relative, rule.include) and not matches(relative, rule.exclude):
-                        selected.append((path, str(PurePosixPath(rule.target) / relative), rule.name))
+                        selected.append((path, path.relative_to(project).as_posix(), rule.name))
                         count += 1
             if not count:
                 warnings.append(f'{rule.name}: 일치하는 파일 없음 ({rule.root})')
@@ -155,27 +139,14 @@ def build_plan(manifest, base, operation='backup', scope=None, categories=None):
     targets = {}
     for source, target, category in selected:
         target = relative_path(target)
-        key = target.casefold()  # Avoid overwriting on case-insensitive servers.
+        key = target.casefold()  # Avoid ambiguous paths when restoring on case-insensitive systems.
         if key in targets:
             if targets[key] == source:
                 continue
             raise ValueError(f'서로 다른 파일의 대상 경로가 중복됩니다: {target}')
         targets[key] = source
-        previous = None
-        if operation == 'deploy' and copy_root:
-            target_path = checked_child(copy_root, target)
-            if target_path == source:
-                raise ValueError(f'원본과 배포 대상이 같습니다: {source}')
-            if target_path.exists():
-                if not target_path.is_file():
-                    raise ValueError(f'대상 경로가 파일이 아닙니다: {target_path}')
-                previous = digest(target_path)
-                if not deploy.overwrite:
-                    raise ValueError(f'기존 파일 덮어쓰기가 꺼져 있습니다: {target}')
         files.append(PlanFile(source, source.relative_to(project).as_posix(), target,
-                              category, source.stat().st_size, digest(source), previous))
+                              category, source.stat().st_size, digest(source)))
     if not files:
         raise ValueError('선택 범위에 파일이 없습니다. 경로·유형·빌드 결과를 확인하세요.')
-    if operation == 'deploy' and deploy.method == 'ftp':
-        warnings.append('FTP 대상 경로는 타깃 루트 기준 상대 경로입니다. 기존 파일은 백업 없이 전송합니다.')
     return Plan(manifest, operation, scope, project, backup_dir, destination, files, warnings)

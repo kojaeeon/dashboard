@@ -1,4 +1,4 @@
-"""Stage an immutable local ZIP, then transfer files relative to the target root."""
+"""Create verified ZIP backups and execution reports."""
 from datetime import datetime, timedelta, timezone
 import hashlib
 from pathlib import Path
@@ -6,8 +6,7 @@ import re
 from uuid import uuid4
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED
 
-from app.deployment.planner import ROOT, checked_child, digest
-from app.deployment.transports import CopyTransport, FTPTransport
+from app.backup.planner import ROOT
 from app.testing.report_store import write_report
 
 KST = timezone(timedelta(hours=9))
@@ -46,13 +45,15 @@ def package_sources(plan):
 
 
 def execute_plan(plan, *, output_root=None, progress=None):
+    if plan.operation != 'backup':
+        raise ValueError('지원하지 않는 작업입니다.')
     run_id = datetime.now(KST).strftime('%Y%m%d_%H%M%S') + '-' + uuid4().hex[:8]
-    output = Path(output_root or ROOT / 'data' / 'deployments') / run_id
+    output = Path(output_root or ROOT / 'data' / 'backup_runs') / run_id
     output.mkdir(parents=True, exist_ok=False)
     report = {'id': run_id, 'title': plan.manifest.title, 'operation': plan.operation,
               'scope': plan.scope, 'destination': plan.destination, 'status': 'running',
               'error': '', 'source_zip': '', 'report_path': str(output / 'result.json'),
-              'files': [{'source': f.relative, 'target': f.relative if plan.operation == 'backup' else f.target, 'category': f.category,
+              'files': [{'source': f.relative, 'target': f.relative, 'category': f.category,
                          'bytes': f.size, 'sha256': f.sha256, 'status': 'pending'} for f in plan.files]}
 
     def publish():
@@ -65,36 +66,8 @@ def execute_plan(plan, *, output_root=None, progress=None):
     try:
         source_zip = package_sources(plan)
         report['source_zip'] = str(source_zip)
-        if plan.operation == 'backup':
-            for file in report['files']:
-                file['status'] = 'passed'
-            report['status'] = 'passed'
-            return report
-        config = plan.manifest.deploy
-        transport = CopyTransport(Path(plan.destination)) if config.method == 'copy' else FTPTransport(config.ftp, plan.destination)
-        with transport:
-            existing = {file.target: transport.exists(file.target) for file in plan.files}
-            for file in plan.files:
-                if existing[file.target] and not config.overwrite:
-                    raise ValueError(f'덮어쓰기가 꺼져 있습니다: {file.target}')
-                if config.method == 'copy':
-                    path = checked_child(Path(plan.destination), file.target)
-                    current = digest(path) if existing[file.target] else None
-                    if current != file.previous_sha256:
-                        raise ValueError(f'계획 이후 대상이 변경되었습니다. 계획을 다시 만드세요: {file.target}')
-            with ZipFile(source_zip) as archive:
-                for file, result in zip(plan.files, report['files']):
-                    result['status'] = 'running'
-                    publish()
-                    try:
-                        with archive.open(file.relative) as source:
-                            transport.write_from(file.target, source)
-                        result['status'] = 'passed'
-                    except Exception as exc:
-                        result['status'] = 'failed'
-                        result['error'] = str(exc)
-                        raise
-                    publish()
+        for file in report['files']:
+            file['status'] = 'passed'
         report['status'] = 'passed'
     except Exception as exc:
         report['status'] = 'failed'
