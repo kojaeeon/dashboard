@@ -3,7 +3,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 
 from nicegui import run, ui
-from app.common.local_library import markdown_files
+from app.common.local_library import local_library, markdown_files
 from app.backup.executor import execute_plan
 from app.backup.manifest import parse_manifest
 from app.backup.planner import ROOT, build_plan
@@ -63,6 +63,19 @@ def render(db):
         except (OSError, UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
+    def open_local_file(path):
+        if state['busy']:
+            return
+        selected = str(path)
+        options = scan_files()
+        options.setdefault(selected, f'{path.parent.name} / {path.name}')
+        file_select.set_options(options)
+        if file_select.value == selected:
+            load_file(selected)
+        else:
+            # Selection changes use the same loader as the backup MD dropdown.
+            file_select.set_value(selected)
+
     async def upload(e):
         if state['busy']:
             return
@@ -86,6 +99,7 @@ def render(db):
                     'flat round aria-label="백업 설정 파일 목록 갱신"')
             uploader = ui.upload(label='백업 MD 불러오기', on_upload=upload, auto_upload=True,
                                  max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown').classes('w-full')
+            local_library(db, open_local_file)
             base = ui.input('설정 기준 폴더', value=str(SAMPLE_PATH.parent),
                             on_change=lambda _: invalidate()).classes('w-full')
             source = ui.codemirror(SAMPLE_PATH.read_text(encoding='utf-8'), language='Markdown',
