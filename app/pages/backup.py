@@ -124,9 +124,8 @@ def render(db):
                 warnings = ui.label('').classes('text-sm text-warning whitespace-pre-wrap')
             table = ui.table(columns=[
                 {'name': key, 'label': label, 'field': key, 'align': 'left'}
-                for key, label in [('category', '유형'), ('source', '프로젝트 상대 경로'),
-                                   ('target', '대상 경로'),
-                                   ('bytes', '바이트'), ('status', '처리'), ('sha256', 'SHA256')]],
+                for key, label in [('category', '유형'), ('source', '프로젝트 경로'),
+                                   ('target', '타겟경로')]],
                 rows=[], row_key='target', pagination=15).classes('w-full')
             downloads = ui.column().classes('w-full')
 
