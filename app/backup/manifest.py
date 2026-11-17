@@ -48,6 +48,10 @@ class Sftp(StrictModel):
 
 
 class Manifest(StrictModel):
+    # Shared work documents may contain metadata unrelated to backups.
+    # Keep nested backup settings strict so misspelled options still fail.
+    model_config = ConfigDict(extra='ignore', hide_input_in_errors=True)
+
     title: str = Field(min_length=1)
     project: Project
     files: list[FileMapping] = Field(default_factory=list)
