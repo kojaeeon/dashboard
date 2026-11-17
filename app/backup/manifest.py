@@ -33,7 +33,7 @@ class Rule(StrictModel):
 
 class Backup(StrictModel):
     directory: str = '../data/backups'
-    scope: Literal['all', 'files', 'categories'] = 'all'
+    scope: Literal['all', 'files', 'categories'] = 'files'
 
 
 class Sftp(StrictModel):
