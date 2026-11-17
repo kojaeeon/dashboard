@@ -76,6 +76,31 @@ def render(db):
             # Selection changes use the same loader as the backup MD dropdown.
             file_select.set_value(selected)
 
+    def saved_documents():
+        return {doc['id']: doc['title'] for doc in db.list('documents')}
+
+    def refresh_documents():
+        options = saved_documents()
+        document_select.set_options(options, value=document_select.value if document_select.value in options else None)
+
+    def load_document():
+        if state['busy'] or document_select.value is None:
+            return
+        document = next((doc for doc in db.list('documents')
+                         if doc['id'] == document_select.value), None)
+        if document is None:
+            refresh_documents()
+            ui.notify('문서가 삭제되었습니다. 다른 문서를 선택하세요.', type='warning')
+            return
+        content = document['content']
+        if len(content.encode('utf-8')) > 2 * 1024 * 1024:
+            ui.notify('설정 문서는 2MB 이하로 작성하세요.', type='warning')
+            return
+        source.set_value(content)
+        base.set_value(str(ROOT))
+        configure()
+        ui.notify('저장 문서를 불러왔습니다. 상대 경로가 있다면 설정 기준 폴더를 확인하세요.')
+
     async def upload(e):
         if state['busy']:
             return
@@ -92,6 +117,12 @@ def render(db):
     with ui.row().classes('w-full items-start gap-6 flex-wrap xl:flex-nowrap'):
         with ui.card().classes('w-full xl:w-1/2 min-w-0'):
             ui.label('프론트메터 설정').classes('text-lg font-semibold')
+            with ui.row().classes('w-full items-center'):
+                document_select = ui.select(saved_documents(), label='SQLite 저장 문서',
+                                            with_input=True).classes('grow min-w-0')
+                document_load_button = ui.button('불러오기', icon='description', on_click=load_document)
+                document_refresh_button = ui.button(icon='refresh', on_click=refresh_documents).props(
+                    'flat round aria-label="저장 문서 목록 갱신"')
             with ui.row().classes('w-full items-center'):
                 file_select = ui.select(scan_files(), value=str(SAMPLE_PATH), label='백업 MD',
                                         on_change=lambda e: load_file(e.value)).classes('grow min-w-0')
@@ -131,7 +162,8 @@ def render(db):
 
     def busy(value):
         state['busy'] = value
-        for control in (file_select, uploader, base, source, apply_button, scope, category_select, plan_button, ftp_button):
+        for control in (document_select, document_load_button, document_refresh_button,
+                        file_select, uploader, base, source, apply_button, scope, category_select, plan_button, ftp_button):
             control.set_enabled(not value)
         execute_button.set_enabled(not value and state['plan'] is not None)
         spinner.set_visibility(value)
