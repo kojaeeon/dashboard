@@ -11,6 +11,7 @@ backup:
   directory: ../data/backups
   scope: files
 files:
+  - source: src/main/java/demo/Hello.java
   - source: src/main/resources/mappers/HelloMapper.xml
     target: /srv/app/mappers/HelloMapper.xml
   - source: src/main/webapp/js/hello.js
@@ -61,8 +62,22 @@ ZIP 이름은 `title_YYYYMMDD_HHMMSS_ffffff.zip`이며 한국 시간입니다.
 ## FTP COPY (SFTP 전송)
 
 프론트메터에 아래 `sftp` 항목을 추가한 후 **FTP COPY**를 누릅니다.
-백업 범위와 관계없이 `files`의 모든 `source`를 해당 `target`으로 업로드합니다.
-`source`는 프로젝트 기준 상대 파일 경로, `target`은 원격 파일 경로입니다.
+백업 범위와 관계없이 `files`에서 **비어 있지 않은 `target`이 있는 항목만** 업로드합니다.
+`source`만 있거나 `target: ''`이면 ZIP 백업에만 포함하고 FTP COPY에서는 제외합니다.
+계획/실행 결과의 타겟경로 컬럼도 해당 항목은 빈칸으로 표시합니다.
+`source`는 프로젝트 기준 상대 파일 경로, `target`은 **파일명까지 포함한 원격 절대경로**입니다.
+`target`은 다른 루트·프리픽스·소스 경로를 붙이지 않고 프론트메터 값을 그대로 사용합니다.
+상대경로 target은 FTP COPY에서 오류로 안내합니다. ZIP 내부 경로는 프로젝트 상대 경로를 유지합니다.
+
+```yaml
+files:
+  # 원본: ZIP 백업만, 타겟경로 컬럼은 빈칸
+  - source: '50198-kais-ui/src/kaml/cdd/KAMLCDD0611_M01.xfdl'
+  # 빌드 결과: ZIP 백업 + FTP COPY
+  - source: '50198-kais-ui/target/kais-sys-ui/kaml/cdd/KAMLCDD0611_M01.xfdl.js'
+    target: /app/kaisw/kaml.war/ui/kaml/cdd/KAMLCDD0611_M01.xfdl.js
+```
+
 원격 상위 폴더는 자동 생성하고 같은 이름의 파일은 덮어씁니다.
 전송은 순서대로 진행하며 오류가 발생하면 중단합니다. 이미 전송된 파일은 유지됩니다.
 
@@ -82,3 +97,4 @@ sftp:
 서버 호스트 키는 기본 `~/.ssh/known_hosts` 또는 지정한 `known_hosts`에 등록되어 있어야 합니다.
 접속 정보는 MD에서만 읽으며 전송 결과 JSON에 비밀번호와 개인 키 암호를 저장하지 않습니다.
 실제 접속 정보를 넣은 문서는 버전 관리에서 제외하세요.
+

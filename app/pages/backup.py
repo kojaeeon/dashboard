@@ -157,7 +157,7 @@ def render(db):
                 {'name': key, 'label': label, 'field': key, 'align': 'left'}
                 for key, label in [('category', '유형'), ('source', '프로젝트 경로'),
                                    ('target', '타겟경로')]],
-                rows=[], row_key='target', pagination=15).classes('w-full')
+                rows=[], row_key='source', pagination=15).classes('w-full')
             downloads = ui.column().classes('w-full')
 
     def busy(value):
@@ -180,7 +180,7 @@ def render(db):
             plan = await run.io_bound(build_plan, manifest, base.value,
                                      'backup', scope.value, category_select.value)
             state['plan'] = plan
-            rows = [{'category': file.category, 'source': file.relative, 'target': file.relative,
+            rows = [{'category': file.category, 'source': file.relative, 'target': file.copy_target,
                      'bytes': file.size, 'sha256': file.sha256[:12], 'status': 'ZIP에 포함'}
                     for file in plan.files]
             table.rows = rows
@@ -274,4 +274,5 @@ def render(db):
     ftp_button.on_click(ftp_copy)
     ui.timer(.3, show_progress)
     configure()
+
 

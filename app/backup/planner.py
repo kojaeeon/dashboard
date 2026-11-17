@@ -53,6 +53,7 @@ class PlanFile:
     category: str
     size: int
     sha256: str
+    copy_target: str = ''
 
 
 @dataclass
@@ -137,6 +138,9 @@ def build_plan(manifest, base, operation='backup', scope=None, categories=None):
 
     files = []
     targets = {}
+    # ZIP entry paths and optional SFTP destinations are independent.
+    copy_targets = {relative_path(mapping.source): mapping.target
+                    for mapping in manifest.files if mapping.target.strip()}
     for source, target, category in selected:
         target = relative_path(target)
         key = target.casefold()  # Avoid ambiguous paths when restoring on case-insensitive systems.
@@ -146,7 +150,9 @@ def build_plan(manifest, base, operation='backup', scope=None, categories=None):
             raise ValueError(f'서로 다른 파일의 대상 경로가 중복됩니다: {target}')
         targets[key] = source
         files.append(PlanFile(source, source.relative_to(project).as_posix(), target,
-                              category, source.stat().st_size, digest(source)))
+                              category, source.stat().st_size, digest(source),
+                              copy_targets.get(source.relative_to(project).as_posix(), '')))
     if not files:
         raise ValueError('선택 범위에 파일이 없습니다. 경로·유형·빌드 결과를 확인하세요.')
     return Plan(manifest, operation, scope, project, backup_dir, destination, files, warnings)
+

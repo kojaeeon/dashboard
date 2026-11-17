@@ -53,7 +53,7 @@ def execute_plan(plan, *, output_root=None, progress=None):
     report = {'id': run_id, 'title': plan.manifest.title, 'operation': plan.operation,
               'scope': plan.scope, 'destination': plan.destination, 'status': 'running',
               'error': '', 'source_zip': '', 'report_path': str(output / 'result.json'),
-              'files': [{'source': f.relative, 'target': f.relative, 'category': f.category,
+              'files': [{'source': f.relative, 'target': f.copy_target, 'archive_path': f.relative, 'category': f.category,
                          'bytes': f.size, 'sha256': f.sha256, 'status': 'pending'} for f in plan.files]}
 
     def publish():
@@ -78,3 +78,4 @@ def execute_plan(plan, *, output_root=None, progress=None):
                 file['status'] = 'skipped'
         publish()
     return report
+

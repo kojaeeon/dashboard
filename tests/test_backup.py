@@ -63,14 +63,14 @@ def test_whole_backup_excludes_dependencies_and_its_own_archives(release_project
     archive_dir = root / 'archives'
     archive_dir.mkdir()
     (archive_dir / 'old.zip').write_bytes(b'old')
-    plan = build_plan(manifest, base, 'backup')
+    plan = build_plan(manifest, base, 'backup', scope='all')
     result = execute_plan(plan, output_root=base / 'runs')
     assert result['status'] == 'passed'
     assert re.match(r'테스트_릴리스_\d{8}_\d{6}_\d{6}\.zip', Path(result['source_zip']).name)
     with ZipFile(result['source_zip']) as archive:
         assert 'README.md' in archive.namelist()
         assert not any('node_modules' in name or name.startswith('archives/') for name in archive.namelist())
-    second_plan = build_plan(manifest, base, 'backup')
+    second_plan = build_plan(manifest, base, 'backup', scope='all')
     assert len(second_plan.files) == len(plan.files)
 
 
@@ -162,3 +162,21 @@ def test_invalid_legacy_targets_do_not_affect_backup(release_project):
     parsed = parse_manifest('---\n' + yaml.safe_dump(data) + '---\n')
     assert not hasattr(parsed, 'deploy')
     assert build_plan(parsed, base, scope='files').files[0].target == 'web/js/app.js'
+
+
+def test_mixed_backup_and_copy_targets_keep_archive_paths(release_project):
+    from app.backup.manifest import FileMapping
+    manifest, root, base = release_project
+    manifest.files = [
+        FileMapping(source='web/forms/App.xfdl'),
+        FileMapping(source='web/forms/App.xfdl.js', target='/app/kaml.war/ui/App.xfdl.js'),
+        FileMapping(source='web/js/app.js', target=''),
+    ]
+    plan = build_plan(manifest, base, scope='files')
+    assert [f.copy_target for f in plan.files] == ['', '/app/kaml.war/ui/App.xfdl.js', '']
+    result = execute_plan(plan, output_root=base / 'runs')
+    assert result['status'] == 'passed'
+    assert [f['target'] for f in result['files']] == ['', '/app/kaml.war/ui/App.xfdl.js', '']
+    with ZipFile(result['source_zip']) as archive:
+        assert set(archive.namelist()) == {mapping.source for mapping in manifest.files}
+

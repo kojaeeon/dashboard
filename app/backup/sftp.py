@@ -24,23 +24,24 @@ class CopyPlan:
 
 
 def build_copy_plan(manifest, base):
+    mappings = [mapping for mapping in manifest.files if mapping.target.strip()]
+    if not mappings:
+        raise ValueError('FTP COPY 대상이 없습니다. files에 절대경로 target이 있는 항목만 전송합니다.')
     if manifest.sftp is None:
         raise ValueError('프론트메터에 sftp 접속 정보를 작성하세요.')
-    if not manifest.files:
-        raise ValueError('files에 전송할 source와 target을 작성하세요.')
     project = resolve_from(base, manifest.project.root)
     files = []
     targets = set()
-    for mapping in manifest.files:
+    for mapping in mappings:
         source = checked_child(project, mapping.source)
         if not source.is_file():
             raise ValueError(f'전송할 파일이 없습니다: {mapping.source}')
         target = mapping.target
         path = PurePosixPath(target)
-        if (not target.strip() or '\\' in target or '..' in path.parts or
+        if (not path.is_absolute() or '\\' in target or '..' in path.parts or
                 any(ord(c) < 32 for c in target) or str(path) in {'.', '/'} or target.endswith('/')):
-            raise ValueError(f'files.target에 원격 파일 경로를 작성하세요: {target}')
-        target = str(path)
+            raise ValueError(f'files.target에 원격 파일 절대경로를 작성하세요: {target}')
+        # This is the complete destination, never joined with another root or source.
         if target in targets:
             raise ValueError(f'전송 대상 경로가 중복됩니다: {target}')
         targets.add(target)
@@ -125,3 +126,4 @@ def execute_copy(plan, *, output_root=None, progress=None):
                 file['status'] = 'skipped'
         publish()
     return report
+

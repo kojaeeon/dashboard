@@ -76,13 +76,45 @@ def test_changed_source_is_not_uploaded(copy_setup):
     env.remote.putfo.assert_not_called()
 
 
-@pytest.mark.parametrize('target', ['', '../outside', '/srv/../file', '/srv/', 'a\\b'])
+@pytest.mark.parametrize('target', ['relative/file.txt', '../outside', '/srv/../file', '/srv/', 'a\\b'])
 def test_invalid_targets_fail_before_connection(copy_setup, target):
     env = copy_setup
     env.manifest.files[0].target = target
     with pytest.raises(ValueError, match='target'):
         sftp.build_copy_plan(env.manifest, env.base)
     env.factory.assert_not_called()
+
+
+@pytest.mark.parametrize('target', ['', '   '])
+def test_backup_only_mapping_is_skipped_before_source_lookup(copy_setup, target):
+    env = copy_setup
+    env.manifest.files[0].target = target
+    (env.project / 'hello.txt').unlink()
+    plan = sftp.build_copy_plan(env.manifest, env.base)
+    assert [f.relative for f in plan.files] == ['second.txt']
+    result = sftp.execute_copy(plan, output_root=env.base / 'runs')
+    assert result['status'] == 'passed'
+    assert env.uploaded == {'/srv/app/second.txt': b'second'}
+
+
+def test_no_copy_targets_does_not_connect(copy_setup):
+    env = copy_setup
+    for mapping in env.manifest.files:
+        mapping.target = ''
+    with pytest.raises(ValueError, match='FTP COPY 대상이 없습니다'):
+        sftp.build_copy_plan(env.manifest, env.base)
+    env.factory.assert_not_called()
+
+
+def test_absolute_target_is_used_verbatim(copy_setup):
+    env = copy_setup
+    target = '/app//kaisw/kaml.war/ui/kaml/cdd/Name.xfdl.js'
+    env.manifest.files[0].target = target
+    plan = sftp.build_copy_plan(env.manifest, env.base)
+    assert plan.files[0].target == target
+    result = sftp.execute_copy(plan, output_root=env.base / 'runs')
+    assert result['status'] == 'passed'
+    assert env.uploaded[target] == b'hello'
 
 
 def test_duplicate_targets_fail_before_connection(copy_setup):
@@ -135,3 +167,45 @@ async def test_ftp_button_executes_frontmatter_files(user, copy_setup, monkeypat
     await user.should_see('전송 결과 JSON')
     assert env.uploaded['/srv/app/hello.txt'] == b'hello'
     assert len(env.uploaded) == 2
+
+
+@pytest.mark.asyncio
+async def test_backup_table_keeps_missing_targets_blank_before_and_after_zip(user, copy_setup, monkeypatch):
+    from zipfile import ZipFile
+    from nicegui import ui
+    from app.backup import executor
+    from app.common.database import Database
+    from app.pages import backup
+
+    env = copy_setup
+    env.manifest.files[0].target = ''
+    env.manifest.backup.directory = str(env.base / 'archives')
+    data = env.manifest.model_dump(exclude={'sftp'})
+    data['files'][0].pop('target')
+    data['sftp'] = {'host': 'server.example', 'username': 'deploy', 'password': 'secret-password'}
+    sample = env.base / 'mixed.md'
+    sample.write_text('---\n' + yaml.safe_dump(data) + '---\n', encoding='utf-8')
+    monkeypatch.setattr(backup, 'SAMPLE_PATH', sample)
+    monkeypatch.setattr(executor, 'ROOT', env.base)
+    monkeypatch.setattr(sftp, 'ROOT', env.base)
+
+    @ui.page('/mixed-backup')
+    def page():
+        backup.render(Database(str(env.base / 'mixed.db')))
+
+    await user.open('/mixed-backup')
+    user.find(kind=ui.button, content='계획 만들기').click()
+    await user.should_see('계획 확인 완료 · 위 실행 버튼으로 이 파일들을 처리합니다.', retries=30)
+    table = next(iter(user.find(kind=ui.table).elements))
+    assert table.row_key == 'source'
+    assert [(row['source'], row['target']) for row in table.rows] == [
+        ('hello.txt', ''), ('second.txt', '/srv/app/second.txt')]
+    user.find(kind=ui.button, content='ZIP 백업 실행').click()
+    await user.should_see('성공 · 2/2개 완료', retries=30)
+    assert [row['target'] for row in table.rows] == ['', '/srv/app/second.txt']
+    with ZipFile(next((env.base / 'archives').glob('*.zip'))) as archive:
+        assert set(archive.namelist()) == {'hello.txt', 'second.txt'}
+    user.find(kind=ui.button, content='FTP COPY').click()
+    await user.should_see('FTP COPY 성공 · 1/1개 완료', retries=30)
+    assert env.uploaded == {'/srv/app/second.txt': b'second'}
+
