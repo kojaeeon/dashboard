@@ -9,7 +9,7 @@ project:
     - __pycache__/**
 backup:
   directory: ../data/backups
-  scope: all
+  scope: files
 files:
   - source: src/main/resources/mappers/HelloMapper.xml
     target: /srv/app/mappers/HelloMapper.xml
