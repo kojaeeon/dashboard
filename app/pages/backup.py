@@ -140,7 +140,7 @@ def render(db):
         with ui.column().classes('w-full xl:w-1/2 min-w-0 gap-4'):
             with ui.card().classes('w-full'):
                 scope = ui.select({'all': '프로젝트 전체', 'files': '지정 파일', 'categories': '유형별 전체'},
-                                  value='all', label='백업 범위', on_change=lambda _: update_scope()).classes('w-full')
+                                  value='files', label='백업 범위', on_change=lambda _: update_scope()).classes('w-full')
                 category_select = ui.select([], multiple=True, label='백업할 유형',
                                             on_change=lambda _: invalidate()).props('use-chips').classes('w-full')
                 with ui.row().classes('items-center'):
