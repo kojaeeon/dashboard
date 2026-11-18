@@ -134,9 +134,10 @@ def execute_query(sql: str, factory_path: str) -> QueryResult:
             raise QueryError('조회 결과 컬럼을 가져올 수 없습니다.')
         columns = tuple(str(column[0]) for column in cursor.description)
         rows = []
-        while len(rows) < MAX_ROWS:
-            batch = cursor.fetchmany(min(512, MAX_ROWS - len(rows)))
-            if not batch:
+        # The Db2 driver can close the result set when fetchone first reaches EOF.
+        for _ in range(MAX_ROWS):
+            row = cursor.fetchone()
+            if row is None:
                 return QueryResult(columns, rows, False)
-            rows.extend(tuple(map(_cell, row)) for row in batch)
+            rows.append(tuple(map(_cell, row)))
         return QueryResult(columns, rows, cursor.fetchone() is not None)

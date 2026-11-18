@@ -19,8 +19,31 @@ SELECT n FROM numbers ORDER BY n
 
 @pytest.fixture
 def local_db2(monkeypatch):
+    class ExhaustionClosingCursor(sqlite3.Cursor):
+        exhausted = False
+
+        def fetchone(self):
+            if self.exhausted:
+                raise sqlite3.ProgrammingError('Result set is closed. ERRORCODE=-4470')
+            row = super().fetchone()
+            self.exhausted = row is None
+            return row
+
+        def fetchmany(self, size):
+            # Mirror adapters that implement fetchmany by repeatedly calling next().
+            rows = []
+            for _ in range(size):
+                row = self.fetchone()
+                if row is None:
+                    break
+                rows.append(row)
+            return rows
+
     class TrackedConnection(sqlite3.Connection):
         closed = False
+
+        def cursor(self):
+            return super().cursor(factory=ExhaustionClosingCursor)
 
         def close(self):
             self.closed = True
@@ -39,7 +62,7 @@ def local_db2(monkeypatch):
     return connections
 
 
-@pytest.mark.parametrize('row_count', [0, MAX_ROWS, MAX_ROWS + 2])
+@pytest.mark.parametrize('row_count', [0, 1, 512, 513, MAX_ROWS, MAX_ROWS + 2])
 def test_result_cap_preserves_columns_and_closes_connection(local_db2, row_count):
     sql = SERIES.format(row_count) if row_count else 'SELECT 1 AS n WHERE 1 = 0'
     result = execute_query(sql, FACTORY)
