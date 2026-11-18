@@ -22,7 +22,8 @@ def build_menu(*, app_theme, mermaid_theme, mermaid_themes,
         test_tab = ui.tab('UI_TEST', icon='science')
         backup_tab = ui.tab('백업', icon='archive')
         code_gen_tab = ui.tab('code_gen', icon='code')
+        query_tab = ui.tab('쿼리조회', icon='storage')
         mind_map_tab = ui.tab('마인드맵', icon='account_tree')
-    return tabs, md_tab, work_tab, test_tab, backup_tab, schedule_tab, code_gen_tab, mind_map_tab
+    return tabs, md_tab, work_tab, test_tab, backup_tab, schedule_tab, code_gen_tab, mind_map_tab, query_tab
 
 
