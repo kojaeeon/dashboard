@@ -1,3 +1,4 @@
+import json
 import re
 import pytest
 from nicegui import ui
@@ -145,3 +146,44 @@ async def test_backup_page_creates_zip_and_requires_new_plan(user, tmp_path, mon
     with ZipFile(next((tmp_path / 'archives').glob('*.zip'))) as archive:
         assert archive.read('hello.txt').decode('utf-8') == '백업 내용'
     assert list((tmp_path / 'data/backup_runs').glob('*/result.json'))
+
+
+@pytest.mark.asyncio
+async def test_query_menu_displays_grid_and_sends_clipboard_text(user, monkeypatch, tmp_path):
+    from app import main
+    from app.common.database import Database
+
+    from app.common.db2_query import QueryResult
+
+    def execute_query(sql, factory_path):
+        assert sql == "SELECT '한글' AS dup, 20 AS dup;"
+        assert factory_path == 'local_db2:connect'
+        return QueryResult(('dup', 'dup'), [('한글', 20)], False)
+
+    monkeypatch.setenv('DASHBOARD_DB2_CONNECT', 'local_db2:connect')
+    monkeypatch.setattr(main.query, 'execute_query', execute_query)
+    monkeypatch.setattr(main, 'db', Database(str(tmp_path / 'ui.db')))
+    ui.page('/')(main.index)
+    copied = []
+
+    def clipboard(match):
+        copied.append(json.loads(match[1]))
+        return True
+
+    user.javascript_rules[re.compile(r'.*navigator\.clipboard\.writeText\((.*?)\);', re.DOTALL)] = clipboard
+    await user.open('/')
+    user.find(kind=ui.tab, content='쿼리조회').click()
+    user.find(kind=ui.textarea, content='DB2 SQL').type("SELECT '한글' AS dup, 20 AS dup;")
+    user.find('조회 실행').click()
+    await user.should_see('1건', retries=30)
+
+    grid = next(iter(user.find(marker='db2-query-result').elements))
+    assert grid.options['pagination'] is False
+    assert [column['headerName'] for column in grid.options['columnDefs']] == ['dup', 'dup']
+    assert grid.options['rowData'] == [{'col_0': '한글', 'col_1': '20'}]
+
+    user.find('MD 표 복사').click()
+    await user.should_see('MD 표 복사 완료', retries=30)
+    user.find('CSV 복사').click()
+    await user.should_see('CSV 복사 완료', retries=30)
+    assert copied == ['| dup | dup |\n| --- | --- |\n| 한글 | 20 |', 'dup,dup\r\n한글,20\r\n']

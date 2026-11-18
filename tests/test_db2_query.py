@@ -1,13 +1,10 @@
 import csv
 import io
-import json
-import re
 import sqlite3
 import sys
 from types import ModuleType
 
 import pytest
-from nicegui import ui
 
 from app.common.db2_query import MAX_ROWS, QueryError, execute_query, query_statement
 
@@ -81,35 +78,3 @@ def test_non_query_statements_are_rejected_before_connect(local_db2, sql):
 def test_sql_strings_identifiers_and_comments_can_contain_semicolons():
     sql = """/* outer /* inner */ */ SELECT 'it''s;fine' AS "a;""b" """
     assert query_statement(sql + '; -- trailing comment') == sql.strip()
-
-
-async def test_query_menu_displays_grid_and_sends_clipboard_text(user, local_db2, monkeypatch, tmp_path):
-    from app import main
-    from app.common.database import Database
-
-    monkeypatch.setenv('DASHBOARD_DB2_CONNECT', FACTORY)
-    monkeypatch.setattr(main, 'db', Database(str(tmp_path / 'ui.db')))
-    ui.page('/')(main.index)
-    copied = []
-
-    def clipboard(match):
-        copied.append(json.loads(match[1]))
-        return True
-
-    user.javascript_rules[re.compile(r'.*navigator\.clipboard\.writeText\((.*?)\);', re.DOTALL)] = clipboard
-    await user.open('/')
-    user.find(kind=ui.tab, content='쿼리조회').click()
-    user.find(kind=ui.textarea, content='DB2 SQL').type("SELECT '한글' AS dup, 20 AS dup;")
-    user.find('조회 실행').click()
-    await user.should_see('1건', retries=30)
-
-    grid = next(iter(user.find(marker='db2-query-result').elements))
-    assert grid.options['pagination'] is False
-    assert [column['headerName'] for column in grid.options['columnDefs']] == ['dup', 'dup']
-    assert grid.options['rowData'] == [{'col_0': '한글', 'col_1': '20'}]
-
-    user.find('MD 표 복사').click()
-    await user.should_see('MD 표 복사 완료', retries=30)
-    user.find('CSV 복사').click()
-    await user.should_see('CSV 복사 완료', retries=30)
-    assert copied == ['| dup | dup |\n| --- | --- |\n| 한글 | 20 |', 'dup,dup\r\n한글,20\r\n']
