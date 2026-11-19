@@ -1,4 +1,5 @@
 """MD menu: local library, editor, preview, index and navigation."""
+import json
 from pathlib import Path
 from nicegui import ui
 from app.common.database import Database
@@ -9,6 +10,7 @@ from app.common.markdown_file import MarkdownFile, normalize_newlines
 
 SAMPLE_PATH = Path(__file__).resolve().parents[2] / 'examples' / 'main-test.md'
 SAMPLE = SAMPLE_PATH.read_text(encoding='utf-8')
+PRINT_SCRIPT = (Path(__file__).resolve().parents[1] / 'common' / 'markdown_print.js').read_text(encoding='utf-8')
 
 
 def render(db: Database):
@@ -85,6 +87,10 @@ def render(db: Database):
             ui.upload(label='MD 불러오기', on_upload=upload, auto_upload=True,
                       max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown,text/markdown').classes('w-full')
         with ui.column().classes('w-full min-w-0 gap-4'):
+            async def editor_snapshot():
+                return await ui.run_javascript(
+                    f'return getElement({editor.id}).editor.state.doc.toString(); /* markdown-save-snapshot */', timeout=10)
+
             with ui.row().classes('w-full items-center'):
                 title = ui.input('문서 제목', value='시작하기').classes('grow')
                 async def save_document():
@@ -94,8 +100,7 @@ def render(db: Database):
                     generation = state['generation']
                     save_button.disable()
                     try:
-                        content = await ui.run_javascript(
-                            f'return getElement({editor.id}).editor.state.doc.toString(); /* markdown-save-snapshot */', timeout=10)
+                        content = await editor_snapshot()
                         if not isinstance(content, str):
                             raise ValueError('편집기 내용을 확인하지 못했습니다. 다시 저장해 주세요.')
                         if generation != state['generation']:
@@ -113,6 +118,36 @@ def render(db: Database):
                         state['saving'] = False
                         save_button.enable()
                 save_button = ui.button('저장', icon='save', on_click=save_document)
+
+                async def print_document():
+                    if not print_button.enabled:
+                        return
+                    print_button.disable()
+                    generation = state['generation']
+                    name = (title.value or '').strip() or '문서'
+                    try:
+                        content = await editor_snapshot()
+                        if not isinstance(content, str) or generation != state['generation']:
+                            ui.notify('현재 문서를 확인한 뒤 다시 PDF 출력해 주세요.', type='warning')
+                            return
+                        with print_stage:
+                            article = MarkdownViewer.render(content, 'default', for_print=True)
+                        result = await ui.run_javascript(
+                            f'return await ({PRINT_SCRIPT})({article.id}, {json.dumps(name)});', timeout=20)
+                        if result == 'empty':
+                            ui.notify('출력할 Markdown 본문이 없습니다.', type='warning')
+                        elif result == 'asset-error':
+                            ui.notify('출력에 필요한 이미지나 글꼴을 불러오지 못했습니다.', type='warning')
+                        elif result != 'ready':
+                            ui.notify('본문 렌더링을 완료하지 못했습니다. 다시 PDF 출력해 주세요.', type='warning')
+                    except TimeoutError:
+                        ui.notify('PDF 출력 준비 시간이 초과되었습니다. 다시 시도해 주세요.', type='warning')
+                    finally:
+                        print_stage.clear()
+                        print_button.enable()
+
+                print_button = ui.button('PDF 출력', icon='picture_as_pdf', on_click=print_document).props('outline')
+
                 async def delete_document():
                     if state['document_id'] is None:
                         return
@@ -126,6 +161,8 @@ def render(db: Database):
                         new_document()
                         document_list.refresh()
                 ui.button(icon='delete', on_click=delete_document).props('flat color=negative')
+            print_stage = ui.element('div').props('aria-hidden=true').style(
+                'position: fixed; left: -10000px; top: 0; width: 760px; pointer-events: none;')
             save_location = ui.label('저장 위치: SQLite 문서').classes('text-xs text-gray-500 break-all')
             def set_mode(mode):
                 state['mode'] = mode

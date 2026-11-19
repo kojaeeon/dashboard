@@ -10,24 +10,26 @@ class MermaidRenderer:
     THEMES = ('default', 'dark', 'forest', 'neutral', 'base')
 
     @classmethod
-    def render(cls, source: str, theme='default'):
+    def render(cls, source: str, theme='default', *, show_controls=True):
         if theme not in cls.THEMES:
             raise ValueError('Unsupported Mermaid theme')
         with ui.column().classes('w-full gap-1'):
-            with ui.row().classes('w-full justify-end'):
-                fullscreen_button = ui.button(icon='fullscreen').props(
-                    'flat round dense aria-label="Mermaid 전체화면"').tooltip('전체화면으로 보기')
-                with ui.button(icon='ios_share').props(
-                        'flat round dense aria-label="Mermaid 출력"').tooltip('Mermaid 출력'):
-                    with ui.menu():
-                        ui.menu_item('SVG 다운로드', on_click=lambda: cls.export(diagram, 'svg'))
-                        ui.menu_item('HTML 다운로드', on_click=lambda: cls.export(diagram, 'html'))
-                        ui.menu_item('코드 복사', on_click=lambda: ui.clipboard.write(source))
+            if show_controls:
+                with ui.row().classes('w-full justify-end'):
+                    fullscreen_button = ui.button(icon='fullscreen').props(
+                        'flat round dense aria-label="Mermaid 전체화면"').tooltip('전체화면으로 보기')
+                    with ui.button(icon='ios_share').props(
+                            'flat round dense aria-label="Mermaid 출력"').tooltip('Mermaid 출력'):
+                        with ui.menu():
+                            ui.menu_item('SVG 다운로드', on_click=lambda: cls.export(diagram, 'svg'))
+                            ui.menu_item('HTML 다운로드', on_click=lambda: cls.export(diagram, 'html'))
+                            ui.menu_item('코드 복사', on_click=lambda: ui.clipboard.write(source))
             diagram = ui.mermaid(source, config={
                 'theme': theme, 'securityLevel': 'strict', 'startOnLoad': False,
                 'secure': ['secure', 'securityLevel', 'startOnLoad', 'maxTextSize', 'theme'],
-            }).classes('w-full overflow-auto').style('min-height: 120px')
-            fullscreen_button.on('click', js_handler=FULLSCREEN_SCRIPT.replace('DIAGRAM_ID', str(diagram.id)))
+            }).classes('w-full overflow-auto markdown-mermaid').style('min-height: 120px')
+            if show_controls:
+                fullscreen_button.on('click', js_handler=FULLSCREEN_SCRIPT.replace('DIAGRAM_ID', str(diagram.id)))
         return diagram
 
     @staticmethod
@@ -107,30 +109,32 @@ class MarkdownViewer:
             yield 'markdown', ''.join(markdown)
 
     @classmethod
-    def render(cls, content, theme='default'):
+    def render(cls, content, theme='default', *, for_print=False):
         with ui.column().classes('w-full gap-4') as container:
             content = content.lstrip('\ufeff')
-            frontmatter = re.match(r'\A---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)', content, re.S)
+            frontmatter = re.match(r'\A---[ \t]*\r?\n(?:(.*?)\r?\n)??(?:---|\.\.\.)[ \t]*(?:\r?\n|$)', content, re.S)
             if frontmatter:
-                with ui.expansion('Frontmatter', icon='data_object').classes('w-full'):
-                    cls.code_block(frontmatter.group(1), 'yaml')
+                if not for_print:
+                    with ui.expansion('Frontmatter', icon='data_object').classes('w-full'):
+                        cls.code_block(frontmatter.group(1) or '', 'yaml')
                 content = content[frontmatter.end():]
             for kind, source in cls.blocks(content, split_code=True):
                 if kind == 'mermaid':
-                    MermaidRenderer.render(source, theme)
+                    MermaidRenderer.render(source, theme, show_controls=not for_print)
                 elif kind == 'code':
                     language, code = source
-                    cls.code_block(code, language)
+                    cls.code_block(code, language, show_controls=not for_print)
                 else:
                     ui.markdown(source, extras=['fenced-code-blocks', 'tables', 'strike']).classes('w-full')
         return container
 
     @staticmethod
-    def code_block(source, language=''):
+    def code_block(source, language='', *, show_controls=True):
         with ui.column().classes('w-full gap-0'):
-            with ui.row().classes('w-full items-center justify-between'):
-                ui.label(language or 'text').classes('text-xs text-gray-500')
-                ui.button(icon='content_copy', on_click=lambda: ui.clipboard.write(source)).props(
-                    'flat round dense aria-label="코드 복사"').tooltip('코드 복사')
+            if show_controls:
+                with ui.row().classes('w-full items-center justify-between'):
+                    ui.label(language or 'text').classes('text-xs text-gray-500')
+                    ui.button(icon='content_copy', on_click=lambda: ui.clipboard.write(source)).props(
+                        'flat round dense aria-label="코드 복사"').tooltip('코드 복사')
             code = ui.code(source, language=language or None).classes('w-full')
             code.copy_button.delete()

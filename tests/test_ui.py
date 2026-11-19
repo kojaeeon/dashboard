@@ -56,6 +56,47 @@ async def test_mixed_markdown(user):
 
 
 @pytest.mark.asyncio
+async def test_markdown_pdf_renders_latest_body_without_saving(user, tmp_path):
+    from app.pages.markdown import render
+
+    db = Database(str(tmp_path / 'pdf.db'))
+    snapshot = ('---\nprivate: excluded\n---\n# 최신 PDF 본문\n'
+                '```python\nprint("hello")\n```\n'
+                '```mermaid\nflowchart LR\n A --> B\n```\n')
+    print_sources = []
+    client = None
+
+    @ui.page('/markdown-pdf')
+    def markdown_pdf():
+        nonlocal client
+        client = ui.context.client
+        render(db)
+
+    def inspect_print_source(match):
+        article = client.elements[int(match[1])]
+        print_sources.append(list(article.descendants()))
+        return 'ready'
+
+    user.javascript_rules[re.compile(r'.*markdown-save-snapshot.*')] = lambda _: snapshot
+    user.javascript_rules[re.compile(r'(?s).*printWindow\.print.*\}\s*\)\((\d+),')] = inspect_print_source
+    await user.open('/markdown-pdf')
+    user.find('PDF 출력').click()
+
+    import asyncio
+    for _ in range(50):
+        if print_sources:
+            break
+        await asyncio.sleep(.01)
+    assert len(print_sources) == 1
+    elements = print_sources[0]
+    assert [element.content.strip() for element in elements if isinstance(element, ui.code)] == ['print("hello")']
+    assert any(isinstance(element, ui.markdown) and '최신 PDF 본문' in element.content for element in elements)
+    assert sum(isinstance(element, ui.mermaid) for element in elements) == 1
+    assert not any(isinstance(element, ui.expansion) for element in elements)
+    assert db.list('documents') == []
+
+
+@pytest.mark.asyncio
 async def test_local_edit_saves_original_file_from_live_editor(user, tmp_path):
     from app.pages.markdown import render
     folder = tmp_path / 'docs'
