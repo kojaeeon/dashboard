@@ -36,6 +36,20 @@ def render(db):
             files[str(example)] = '브라우저 설정 예시 · browser.md'
         return files
 
+    def scenario_documents():
+        options = {doc['id']: f"저장 문서 · {doc['title']}" for doc in db.list('documents')}
+        for path, label in scan_files().items():
+            options[path] = label if path == str(SAMPLE_PATH) else f'등록 폴더 · {label}'
+        return options
+
+    def refresh_scenario_documents():
+        if session.running:
+            return
+        options = scenario_documents()
+        if options != file_select.options:
+            value = file_select.value
+            file_select.set_options(options, value=value if value in options else None)
+
     def sync_browser(scenario):
         config = effective_browser(scenario.browser, browser_override)
         base_url.set_value(config.base_url)
@@ -112,17 +126,28 @@ def render(db):
             message.set_text(str(exc))
             return None
 
-    def load_source(path):
-        if session.running:
+    def apply_source(content):
+        source.set_value(content)
+        scenario = validate()
+        if scenario:
+            sync_browser(scenario)
+
+    def load_source(selection):
+        if session.running or selection is None:
             return
         try:
-            selected = Path(path)
+            if isinstance(selection, int):
+                document = next((doc for doc in db.list('documents') if doc['id'] == selection), None)
+                if document is None:
+                    refresh_scenario_documents()
+                    apply_source('')
+                    raise ValueError('저장 문서를 찾을 수 없습니다.')
+                apply_source(document['content'])
+                return
+            selected = Path(selection)
             if selected.stat().st_size > 2 * 1024 * 1024:
                 raise ValueError('2MB 이하 파일만 지원합니다.')
-            source.set_value(selected.read_text(encoding='utf-8-sig'))
-            scenario = validate()
-            if scenario:
-                sync_browser(scenario)
+            apply_source(selected.read_text(encoding='utf-8-sig'))
         except (OSError, UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
@@ -132,10 +157,7 @@ def render(db):
         try:
             if e.file.size() > 2 * 1024 * 1024:
                 raise ValueError('2MB 이하 파일만 지원합니다.')
-            source.set_value((await e.file.read()).decode('utf-8-sig'))
-            scenario = validate()
-            if scenario:
-                sync_browser(scenario)
+            apply_source((await e.file.read()).decode('utf-8-sig'))
         except (UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
@@ -143,10 +165,11 @@ def render(db):
         with ui.card().classes('w-full xl:w-1/2 min-w-0'):
             ui.label('시나리오 문서').classes('text-lg font-semibold')
             with ui.row().classes('w-full items-center'):
-                file_select = ui.select(scan_files(), value=str(SAMPLE_PATH), label='등록 폴더의 MD',
+                file_select = ui.select(scenario_documents(), value=str(SAMPLE_PATH), label='시나리오 선택',
                                         on_change=lambda e: load_source(e.value)).classes('grow min-w-0')
-                ui.button(icon='refresh', on_click=lambda: file_select.set_options(scan_files())).props(
-                    'flat round aria-label="시나리오 파일 목록 갱신"')
+                file_select.on('popup-show', refresh_scenario_documents)
+                scenario_refresh = ui.button(icon='refresh', on_click=refresh_scenario_documents).props(
+                    'flat round aria-label="시나리오 문서 목록 갱신"').mark('ui-test-scenario-refresh')
             uploader = ui.upload(label='시나리오 MD 불러오기', on_upload=upload, auto_upload=True,
                                  max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown').classes('w-full')
             source = ui.codemirror(SAMPLE_PATH.read_text(encoding='utf-8'), language='Markdown',
@@ -184,7 +207,7 @@ def render(db):
             evidence = ui.column().classes('w-full')
 
     def controls(enabled):
-        for element in (run_button, source, file_select, uploader, base_url, headed,
+        for element in (run_button, source, file_select, scenario_refresh, uploader, base_url, headed,
                         browser_select, browser_upload, browser_refresh):
             element.set_enabled(enabled)
         stop_button.set_enabled(not enabled)

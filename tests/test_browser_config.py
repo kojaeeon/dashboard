@@ -112,3 +112,43 @@ async def test_ui_browser_selection_drives_execution(user, tmp_path, monkeypatch
     assert starts[0][1] is True
     assert starts[0][2].timeout == 15000
     assert starts[0][2].viewport.width == 1920
+
+
+@pytest.mark.asyncio
+async def test_ui_runs_copy_of_sqlite_scenario(user, tmp_path, monkeypatch):
+    from nicegui import ui
+    from app.common.database import Database
+    from app.pages import ui_test
+
+    db = Database(str(tmp_path / 'ui.db'))
+    sample = ui_test.SAMPLE_PATH.read_text(encoding='utf-8')
+    saved = sample.replace('KJA_BOARD 기본 UI 흐름', '저장된 테스트')
+    edited = saved.replace('저장된 테스트', '실행용 테스트')
+    starts = []
+
+    def start(self, markdown, url, headed, config):
+        starts.append(markdown)
+        self.output = tmp_path / 'run'
+        return 'sqlite-run'
+
+    monkeypatch.setattr(ui_test.UITestRun, 'start', start)
+
+    @ui.page('/sqlite-scenario')
+    def page():
+        ui_test.render(db)
+
+    await user.open('/sqlite-scenario')
+    item_id = db.save_document('정기점검 UI 테스트', sample)
+    picker = user.find(kind=ui.select, content='시나리오 선택')
+    user.find(marker='ui-test-scenario-refresh').click()
+    db.save_document('정기점검 UI 테스트', saved, item_id)
+    picker.click()
+    user.find('저장 문서 · 정기점검 UI 테스트').click()
+    await user.should_see('저장된 테스트')
+    editor = next(iter(user.find(kind=ui.codemirror).elements))
+    assert editor.value == saved
+    editor.set_value(edited)
+    user.find(kind=ui.button, content='테스트 실행').click()
+    await user.should_see('실행 준비 중 · sqlite-run', retries=30)
+    assert starts == [edited]
+    assert db.list('documents')[0]['content'] == saved

@@ -121,7 +121,8 @@ ADO는 MockTransport로 테스트하며 실제 사내 ADO 연결은 `.env` 구�
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
-UI_TEST에서 등록 폴더의 MD를 선택하거나 업로드하고 **단계 확인 → 테스트 실행**을 누르세요.
+UI_TEST의 **시나리오 선택**에서 MD 보기에 저장한 SQLite 문서나 등록 폴더의 MD를 선택할 수 있습니다.
+MD를 직접 업로드할 수도 있습니다. 문서를 불러온 뒤 **단계 확인 → 테스트 실행**을 누르세요.
 실행 전 시작 URL과 브라우저 표시 여부를 변경할 수 있습니다.
 이 화면에서 수정한 시나리오는 실행 복사본에 저장하며 원본 MD를 덮어쓰지 않습니다.
 
