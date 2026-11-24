@@ -1,6 +1,7 @@
 """Separate-process runner keeps browser lifecycle independent of NiceGUI."""
 import argparse
 import asyncio
+import json
 from pathlib import Path
 import time
 
@@ -50,7 +51,9 @@ async def execute_file(source, output, base_url=None, headed=None, browser_confi
                     publish()
                     started = time.monotonic()
                     try:
-                        current['strategy'] = await accelerator.execute(step, current['number'])
+                        current['strategy'], result = await accelerator.execute(step, current['number'])
+                        if step.action == 'js':
+                            current['return_value'] = json.dumps(result, ensure_ascii=False, default=str)
                         current['status'] = 'passed'
                     except asyncio.CancelledError:
                         current['status'] = 'cancelled'

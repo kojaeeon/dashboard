@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
 
 
 class Step(BaseModel):
@@ -24,22 +24,29 @@ class Step(BaseModel):
     value: str | int | float | bool | None = None
     url: str = ''
     timeout: int | None = Field(default=None, ge=100, le=120000)
+    script: str = ''
+    arg: JsonValue = None
 
     @model_validator(mode='after')
     def validate_action(self):
         supported = {'goto', 'menu', 'click', 'dblclick', 'text', 'fill', 'select',
                      'check', 'uncheck', 'press', 'wait', 'assert_text',
-                     'assert_visible', 'screenshot', 'popup', 'frame', 'main_frame'}
+                     'assert_visible', 'screenshot', 'popup', 'frame', 'main_frame', 'js'}
         if self.action not in supported:
             raise ValueError(f'지원하지 않는 action: {self.action}')
+        if self.action != 'js' and self.model_fields_set.intersection({'script', 'arg'}):
+            raise ValueError('script와 arg는 js 액션에서만 사용할 수 있습니다.')
         if self.action == 'goto':
             if not (self.url or self.value):
                 raise ValueError('goto: url 또는 value가 필요합니다.')
         elif self.action == 'frame':
             if not (self.selector or self.value):
                 raise ValueError('frame: iframe selector 또는 value가 필요합니다.')
+        elif self.action == 'js':
+            if not self.script.strip():
+                raise ValueError('js: script가 필요합니다.')
         elif self.action not in {'screenshot', 'main_frame'}:
-            if not any((self.selector, self.id, self.role, self.label, self.text, self.attr)):
+            if not any((self.selector, self.id, self.role, self.label, self.text, self.attr, self.syscode)):
                 raise ValueError(f'{self.action}: 대상을 지정하세요.')
         if self.action in {'text', 'fill', 'select', 'press', 'assert_text'} and self.value is None:
             raise ValueError(f'{self.action}: value가 필요합니다.')

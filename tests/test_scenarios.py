@@ -35,6 +35,8 @@ step:
 @pytest.mark.parametrize('source', [
     '# no frontmatter', '---\nstep: []\n---',
     '---\nstep: [{action: eval, value: "danger"}]\n---',
+    '---\nstep: [{action: js, script: " "}]\n---',
+    '---\nstep: [{action: click, text: OK, script: "() => 1"}]\n---',
     '---\nstep: [{action: fill, label: Username}]\n---',
     '---\nstep: [{action: click, unexpected: true}]\n---',
     '---\nbrowser: {base_url: "file:///etc"}\nstep: [{action: screenshot}]\n---',
@@ -115,6 +117,29 @@ def test_real_failure_stops_flow_and_captures(tmp_path, fixture_site):
     assert [s['status'] for s in report['steps']] == ['failed', 'skipped']
     assert (output / 'failure.png').stat().st_size > 0
     assert (output / 'trace.zip').stat().st_size > 0
+
+
+def test_real_javascript_actions_and_timeout(tmp_path, fixture_site):
+    process, report, _ = run_worker(tmp_path, fixture_site, '''
+  - action: js
+    script: '({id}) => document.getElementById(id).textContent'
+    arg: {id: result}
+  - {action: frame, selector: iframe}
+  - {action: js, script: 'async () => document.querySelector("p").textContent'}
+  - {action: main_frame}
+  - {action: popup, role: button, name: Popup}
+  - {action: js, script: '() => document.querySelector("h1").textContent'}
+  - {action: js, script: '() => false'}
+  - {action: js, script: '() => new Promise(() => {})', timeout: 200}
+  - {action: screenshot}
+''')
+    assert process.returncode == 1, report
+    steps = report['steps']
+    assert [json.loads(steps[i]['return_value']) for i in (0, 2, 5, 6)] == [
+        'Waiting', 'Inside frame', 'Popup ready', False,
+    ]
+    assert [step['status'] for step in steps] == ['passed'] * 7 + ['failed', 'skipped']
+    assert '200ms' in steps[7]['error']
 
 
 def test_stop_cancels_wait_and_closes_worker(tmp_path, fixture_site):

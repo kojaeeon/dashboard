@@ -51,6 +51,7 @@ step:
 - `popup`: 새 창을 여는 대상을 클릭하고 이후 단계를 새 창에서 실행합니다.
 - `frame`: `selector`에 해당하는 iframe 안으로 전환합니다. `main_frame`으로 돌아옵니다.
 - `screenshot`: 해당 단계의 화면을 PNG로 저장합니다.
+- `js`: 현재 페이지 또는 선택한 iframe에서 `script`를 실행하고 반환값을 표시합니다.
 
 ## 요소 찾기
 

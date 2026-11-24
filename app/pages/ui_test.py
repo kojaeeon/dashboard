@@ -7,6 +7,7 @@ from app.testing.runner import ROOT, UITestRun
 from app.testing.scenario import effective_browser, parse_browser_config, parse_scenario
 
 SAMPLE_PATH = ROOT / 'examples' / 'ui-test-smoke.md'
+GUIDE_PATH = ROOT / 'docs' / 'ui-test-actions.md'
 
 
 def render(db):
@@ -175,7 +176,13 @@ def render(db):
             source = ui.codemirror(SAMPLE_PATH.read_text(encoding='utf-8'), language='Markdown',
                                    theme='vscodeDark' if db.setting('app_theme', 'light') == 'dark' else 'vscodeLight',
                                    line_wrapping=True).classes('w-full').style('height: 480px')
-            ui.button('단계 확인', icon='checklist', on_click=validate).props('flat')
+            with ui.row().classes('items-center'):
+                ui.button('단계 확인', icon='checklist', on_click=validate).props('flat')
+                if GUIDE_PATH.is_file():
+                    with ui.dialog() as guide, ui.card().classes('w-full max-w-4xl'):
+                        ui.button('닫기', icon='close', on_click=guide.close).props('flat').classes('self-end')
+                        ui.markdown(GUIDE_PATH.read_text(encoding='utf-8')).classes('w-full')
+                    ui.button('액션 가이드', icon='help_outline', on_click=guide.open).props('flat')
         with ui.column().classes('w-full xl:w-1/2 min-w-0 gap-4'):
             with ui.card().classes('w-full'):
                 ui.label('브라우저 MD 설정').classes('text-lg font-semibold')
@@ -202,7 +209,8 @@ def render(db):
             plan = ui.table(columns=[
                 {'name': key, 'label': label, 'field': key, 'align': 'left'}
                 for key, label in [('number', '#'), ('action', '동작'), ('target', '대상'),
-                                   ('status', '결과'), ('duration_ms', 'ms'), ('strategy', '요소 찾기'), ('error', '오류')]],
+                                   ('status', '결과'), ('duration_ms', 'ms'), ('strategy', '요소 찾기'),
+                                   ('return_value', 'JS 반환값'), ('error', '오류')]],
                 rows=[], row_key='number', pagination=15).classes('w-full')
             evidence = ui.column().classes('w-full')
 

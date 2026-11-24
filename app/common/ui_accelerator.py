@@ -58,6 +58,24 @@ class PlaywrightAccelerator:
                 raise TimeoutError(f'대상을 찾지 못했습니다: {step.label or step.selector or step.id or step.text or step.role}')
             await asyncio.sleep(.1)
 
+    async def evaluate(self, step: Step, timeout: int):
+        async def run_script():
+            target = self.page
+            if self.scope is not self.page:
+                handle = await self.scope.owner.element_handle(timeout=timeout)
+                try:
+                    target = await handle.content_frame()
+                finally:
+                    await handle.dispose()
+                if target is None:
+                    raise ValueError('js: 선택한 요소에서 iframe을 찾지 못했습니다.')
+            return await target.evaluate(step.script, step.arg)
+
+        try:
+            return await asyncio.wait_for(run_script(), timeout / 1000)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f'js: 실행 제한 시간({timeout}ms)을 초과했습니다.') from exc
+
     async def execute(self, step: Step, number: int):
         timeout = step.timeout or self.timeout
         action = step.action
@@ -67,16 +85,18 @@ class PlaywrightAccelerator:
                 raise ValueError('goto는 HTTP(S) 주소만 지원합니다.')
             await self.page.goto(url, wait_until='domcontentloaded', timeout=timeout)
             self.scope = self.page
-            return 'url'
+            return 'url', None
         if action == 'frame':
             self.scope = self.page.frame_locator(str(step.selector or step.value))
-            return 'frame'
+            return 'frame', None
         if action == 'main_frame':
             self.scope = self.page
-            return 'main_frame'
+            return 'main_frame', None
         if action == 'screenshot':
             await self.page.screenshot(path=str(self.output_dir / f'{number:03d}-screenshot.png'), full_page=True)
-            return 'screenshot'
+            return 'screenshot', None
+        if action == 'js':
+            return 'js', await self.evaluate(step, timeout)
         strategy, locator = await self.locate(step)
         if action in {'click', 'menu'}:
             await locator.click(timeout=timeout)
@@ -102,4 +122,4 @@ class PlaywrightAccelerator:
             self.page = await info.value
             await self.page.wait_for_load_state('domcontentloaded', timeout=timeout)
             self.scope = self.page
-        return strategy
+        return strategy, None
