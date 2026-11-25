@@ -35,6 +35,7 @@ step:
 | `dblclick` | 대상 | `timeout`. 요소를 더블클릭합니다. | `{action: dblclick, text: 정기점검}` |
 | `text` | 대상, `value` | `timeout`. 입력값 전체를 문자열로 바꿉니다. | `{action: text, label: 고객번호, value: '00123'}` |
 | `fill` | 대상, `value` | `timeout`. `text`와 동일합니다. | `{action: fill, selector: '#customerNo', value: ''}` |
+| `jsfill` | `input` 또는 `textarea` 대상, `value` | `timeout`. `readonly` 입력칸에도 JS로 값을 설정하고 `input`, `change` 이벤트를 보냅니다. 값이 달라지면 단계를 실패 처리합니다. | `{action: jsfill, id: customerNo, value: '00123456'}` |
 | `select` | 대상, `value` | `timeout`. HTML `select`의 옵션 값을 고릅니다. 목록을 직접 클릭하는 커스텀 콤보는 `click`을 단계별로 사용하세요. | `{action: select, id: status, value: 'ACTIVE'}` |
 | `check` | 대상 | `timeout`. 체크박스를 선택합니다. | `{action: check, id: includeClosed}` |
 | `uncheck` | 대상 | `timeout`. 체크박스 선택을 해제합니다. | `{action: uncheck, id: includeClosed}` |

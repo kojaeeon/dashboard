@@ -38,6 +38,7 @@ step:
     '---\nstep: [{action: js, script: " "}]\n---',
     '---\nstep: [{action: click, text: OK, script: "() => 1"}]\n---',
     '---\nstep: [{action: fill, label: Username}]\n---',
+    '---\nstep: [{action: jsfill, id: name}]\n---',
     '---\nstep: [{action: click, unexpected: true}]\n---',
     '---\nbrowser: {base_url: "file:///etc"}\nstep: [{action: screenshot}]\n---',
     '---\nstep: !!python/object:os.system {}\n---',
@@ -55,6 +56,11 @@ def fixture_site():
             <label>Name <input id="name"></label>
             <button onclick="document.getElementById('result').textContent = document.getElementById('name').value">Apply</button>
             <div id="result">Waiting</div>
+            <div oninput="document.getElementById('jsfill-result').textContent = event.target.value"
+                 onchange="document.getElementById('jsfill-result').textContent += ':change'">
+                <input id="customer.no" readonly>
+            </div>
+            <div id="jsfill-result"></div>
             <button onclick="window.open('/popup')">Popup</button>
             <iframe title="child" srcdoc="<p>Inside frame</p>"></iframe>
             </body></html>'''
@@ -117,6 +123,15 @@ def test_real_failure_stops_flow_and_captures(tmp_path, fixture_site):
     assert [s['status'] for s in report['steps']] == ['failed', 'skipped']
     assert (output / 'failure.png').stat().st_size > 0
     assert (output / 'trace.zip').stat().st_size > 0
+
+
+def test_real_browser_jsfill_updates_readonly_input_and_dispatches_events(tmp_path, fixture_site):
+    process, report, _ = run_worker(tmp_path, fixture_site, '''
+  - {action: jsfill, id: customer.no, value: '00123456'}
+  - {action: assert_text, id: jsfill-result, value: '00123456:change'}
+''')
+    assert process.returncode == 0, report
+    assert report['steps'][0]['strategy'] == 'id'
 
 
 def test_real_javascript_actions_and_timeout(tmp_path, fixture_site):

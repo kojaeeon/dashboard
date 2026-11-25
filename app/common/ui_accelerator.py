@@ -104,6 +104,18 @@ class PlaywrightAccelerator:
             await locator.dblclick(timeout=timeout)
         elif action in {'text', 'fill'}:
             await locator.fill(str(step.value), timeout=timeout)
+        elif action == 'jsfill':
+            await locator.evaluate('''(input, value) => {
+                if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+                    throw new Error('jsfill: input 또는 textarea를 지정하세요.');
+                }
+                input.value = value;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                if (input.value !== value) {
+                    throw new Error('jsfill: 입력값이 반영되지 않았습니다.');
+                }
+            }''', str(step.value), timeout=timeout)
         elif action == 'select':
             await locator.select_option(str(step.value), timeout=timeout)
         elif action == 'check':

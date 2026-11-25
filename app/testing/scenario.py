@@ -29,7 +29,7 @@ class Step(BaseModel):
 
     @model_validator(mode='after')
     def validate_action(self):
-        supported = {'goto', 'menu', 'click', 'dblclick', 'text', 'fill', 'select',
+        supported = {'goto', 'menu', 'click', 'dblclick', 'text', 'fill', 'jsfill', 'select',
                      'check', 'uncheck', 'press', 'wait', 'assert_text',
                      'assert_visible', 'screenshot', 'popup', 'frame', 'main_frame', 'js'}
         if self.action not in supported:
@@ -48,7 +48,7 @@ class Step(BaseModel):
         elif self.action not in {'screenshot', 'main_frame'}:
             if not any((self.selector, self.id, self.role, self.label, self.text, self.attr, self.syscode)):
                 raise ValueError(f'{self.action}: 대상을 지정하세요.')
-        if self.action in {'text', 'fill', 'select', 'press', 'assert_text'} and self.value is None:
+        if self.action in {'text', 'fill', 'jsfill', 'select', 'press', 'assert_text'} and self.value is None:
             raise ValueError(f'{self.action}: value가 필요합니다.')
         if any(not re.fullmatch(r'[A-Za-z_][\w:.-]*', key) for key in self.attr):
             raise ValueError('attr 키는 HTML 속성 이름이어야 합니다.')
