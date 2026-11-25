@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import yaml
 
 from app.testing.scenario import BrowserConfig, effective_browser, parse_browser_config, parse_scenario
 
@@ -115,15 +116,14 @@ async def test_ui_browser_selection_drives_execution(user, tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_ui_runs_copy_of_sqlite_scenario(user, tmp_path, monkeypatch):
+async def test_ui_previews_and_runs_sqlite_scenario(user, tmp_path, monkeypatch):
     from nicegui import ui
     from app.common.database import Database
     from app.pages import ui_test
 
     db = Database(str(tmp_path / 'ui.db'))
     sample = ui_test.SAMPLE_PATH.read_text(encoding='utf-8')
-    saved = sample.replace('KJA_BOARD 기본 UI 흐름', '저장된 테스트')
-    edited = saved.replace('저장된 테스트', '실행용 테스트')
+    saved = sample.replace('KJA_BOARD 기본 UI 흐름', '저장된 테스트').replace('timeout: 10000', 'timeout: 15000')
     starts = []
 
     def start(self, markdown, url, headed, config):
@@ -145,10 +145,11 @@ async def test_ui_runs_copy_of_sqlite_scenario(user, tmp_path, monkeypatch):
     picker.click()
     user.find('저장 문서 · 정기점검 UI 테스트').click()
     await user.should_see('저장된 테스트')
-    editor = next(iter(user.find(kind=ui.codemirror).elements))
-    assert editor.value == saved
-    editor.set_value(edited)
+    preview = next(iter(user.find(kind=ui.code, marker='ui-test-scenario-preview').elements))
+    metadata = yaml.safe_load(saved.split('---', 2)[1])
+    assert yaml.safe_load(preview.content) == {key: metadata[key] for key in ('browser', 'step')}
+    await user.should_not_see(kind=ui.codemirror)
     user.find(kind=ui.button, content='테스트 실행').click()
     await user.should_see('실행 준비 중 · sqlite-run', retries=30)
-    assert starts == [edited]
+    assert starts == [saved]
     assert db.list('documents')[0]['content'] == saved

@@ -112,7 +112,7 @@ class Scenario:
     steps: list[Step]
 
 
-def parse_scenario(markdown: str) -> Scenario:
+def _scenario_metadata(markdown: str) -> dict:
     if len(markdown.encode('utf-8')) > 2 * 1024 * 1024:
         raise ValueError('시나리오는 2MB 이하로 작성하세요.')
     match = re.match(r'\A\ufeff?---[ \t]*\r?\n(.*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)', markdown, re.S)
@@ -120,8 +120,24 @@ def parse_scenario(markdown: str) -> Scenario:
         raise ValueError('문서 맨 위에 YAML 프론트메터(---)가 필요합니다.')
     try:
         metadata = yaml.safe_load(match[1])
-        if not isinstance(metadata, dict):
-            raise ValueError('프론트메터는 key: value 형식이어야 합니다.')
+    except (yaml.YAMLError, RecursionError) as exc:
+        raise ValueError(f'프론트메터 검증 실패: {exc}') from exc
+    if not isinstance(metadata, dict):
+        raise ValueError('프론트메터는 key: value 형식이어야 합니다.')
+    return metadata
+
+
+def scenario_preview(markdown: str) -> str:
+    metadata = _scenario_metadata(markdown)
+    preview = {key: metadata[key] for key in ('browser', 'step') if key in metadata}
+    if not preview:
+        return ''
+    return yaml.safe_dump(preview, allow_unicode=True, sort_keys=False)
+
+
+def parse_scenario(markdown: str) -> Scenario:
+    metadata = _scenario_metadata(markdown)
+    try:
         raw_steps = metadata.get('step')
         if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= 500:
             raise ValueError('step에 1~500개 단계가 필요합니다.')
@@ -133,7 +149,7 @@ def parse_scenario(markdown: str) -> Scenario:
             raise ValueError('workItem은 key: value 형식이어야 합니다.')
         title = metadata.get('title') or work_item.get('serviceNm') or work_item.get('menu') or 'UI 시나리오'
         return Scenario(str(title), work_item, browser, steps)
-    except (yaml.YAMLError, ValidationError, RecursionError) as exc:
+    except (ValidationError, RecursionError) as exc:
         raise ValueError(f'프론트메터 검증 실패: {exc}') from exc
 
 

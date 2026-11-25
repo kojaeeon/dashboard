@@ -4,7 +4,7 @@ from pathlib import Path
 from nicegui import run, ui
 from app.common.local_library import markdown_files
 from app.testing.runner import ROOT, UITestRun
-from app.testing.scenario import effective_browser, parse_browser_config, parse_scenario
+from app.testing.scenario import effective_browser, parse_browser_config, parse_scenario, scenario_preview
 
 SAMPLE_PATH = ROOT / 'examples' / 'ui-test-smoke.md'
 GUIDE_PATH = ROOT / 'docs' / 'ui-test-actions.md'
@@ -19,6 +19,7 @@ def render(db):
     stopping = False
     browser_override = None
     browser_error = False
+    scenario_source = SAMPLE_PATH.read_text(encoding='utf-8')
 
     def scan_files():
         files = {str(SAMPLE_PATH): '기본 예시 · ui-test-smoke.md'}
@@ -112,7 +113,7 @@ def render(db):
 
     def validate():
         try:
-            scenario = parse_scenario(source.value or '')
+            scenario = parse_scenario(scenario_source)
             plan.rows = [
                 {'number': i, 'action': s.action, 'target': s.label or s.name or s.selector or s.id or s.text or s.url,
                  'status': '대기', 'duration_ms': '', 'strategy': '', 'error': ''}
@@ -128,7 +129,13 @@ def render(db):
             return None
 
     def apply_source(content):
-        source.set_value(content)
+        nonlocal scenario_source
+        scenario_source = content
+        try:
+            preview = scenario_preview(content)
+        except ValueError:
+            preview = ''
+        source_preview.set_content(preview)
         scenario = validate()
         if scenario:
             sync_browser(scenario)
@@ -173,9 +180,7 @@ def render(db):
                     'flat round aria-label="시나리오 문서 목록 갱신"').mark('ui-test-scenario-refresh')
             uploader = ui.upload(label='시나리오 MD 불러오기', on_upload=upload, auto_upload=True,
                                  max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown').classes('w-full')
-            source = ui.codemirror(SAMPLE_PATH.read_text(encoding='utf-8'), language='Markdown',
-                                   theme='vscodeDark' if db.setting('app_theme', 'light') == 'dark' else 'vscodeLight',
-                                   line_wrapping=True).classes('w-full').style('height: 480px')
+            source_preview = ui.code('', language='yaml').classes('w-full h-[480px]').mark('ui-test-scenario-preview')
             with ui.row().classes('items-center'):
                 ui.button('단계 확인', icon='checklist', on_click=validate).props('flat')
                 if GUIDE_PATH.is_file():
@@ -215,7 +220,7 @@ def render(db):
             evidence = ui.column().classes('w-full')
 
     def controls(enabled):
-        for element in (run_button, source, file_select, scenario_refresh, uploader, base_url, headed,
+        for element in (run_button, file_select, scenario_refresh, uploader, base_url, headed,
                         browser_select, browser_upload, browser_refresh):
             element.set_enabled(enabled)
         stop_button.set_enabled(not enabled)
@@ -231,7 +236,7 @@ def render(db):
         evidence.clear()
         controls(False)
         try:
-            run_id = await run.io_bound(session.start, source.value, base_url.value, headed.value, browser_override)
+            run_id = await run.io_bound(session.start, scenario_source, base_url.value, headed.value, browser_override)
             message.set_text(f'실행 준비 중 · {run_id}')
             output_label.set_text(str(session.output))
             poller.activate()
@@ -286,7 +291,5 @@ def render(db):
     run_button.on_click(start)
     stop_button.on_click(stop)
     poller = ui.timer(.5, poll, active=False)
-    initial = validate()
-    if initial:
-        sync_browser(initial)
+    apply_source(scenario_source)
 
