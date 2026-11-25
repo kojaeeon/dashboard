@@ -5,6 +5,73 @@ from nicegui import ui
 from app.common.database import Database
 
 
+async def test_markdown_restores_saved_and_local_documents(user, tmp_path):
+    from app.pages import markdown
+
+    db = Database(str(tmp_path / 'ui.db'))
+    doc_id = db.save_document('저장된 문서', '# 저장 본문')
+    folder = tmp_path / 'md'
+    folder.mkdir()
+    local_file = folder / 'local.md'
+    local_file.write_text('# 로컬 본문', encoding='utf-8')
+    db.add_folder(str(folder))
+
+    @ui.page('/restore-md')
+    def page():
+        markdown.render(db)
+
+    await user.open('/restore-md')
+    user.find('저장된 문서').click()
+    db.save_document('저장된 문서', '# 갱신된 저장 본문', doc_id)
+    await user.open('/restore-md')
+    await user.should_see('갱신된 저장 본문')
+
+    user.find(kind=ui.expansion, content='md').click()
+    user.find('local.md').click()
+    local_file.write_text('# 갱신된 로컬 본문', encoding='utf-8')
+    await user.open('/restore-md')
+    await user.should_see('갱신된 로컬 본문')
+
+
+async def test_backup_restores_file_and_saved_document_without_a_plan(user, tmp_path):
+    from app.pages import backup
+
+    db = Database(str(tmp_path / 'ui.db'))
+    folder = tmp_path / 'md'
+    folder.mkdir()
+    local_file = folder / 'backup-custom.md'
+    example = backup.SAMPLE_PATH.read_text(encoding='utf-8')
+    document = example.replace('KJA_샘플프로젝트', 'SQLite 백업')
+    local = example.replace('KJA_샘플프로젝트', '로컬 백업')
+    local_file.write_text(local, encoding='utf-8')
+    doc_id = db.save_document('백업 문서', document)
+    db.add_folder(str(folder))
+
+    @ui.page('/restore-backup')
+    def page():
+        backup.render(db)
+
+    await user.open('/restore-backup')
+    user.find(kind=ui.select, content='백업 MD').click()
+    user.find('md / backup-custom.md').click()
+    await user.open('/restore-backup')
+    editor = next(iter(user.find(kind=ui.codemirror).elements))
+    base = next(iter(user.find(kind=ui.input, content='설정 기준 폴더').elements))
+    assert editor.value == local
+    assert base.value == str(folder)
+
+    user.find(kind=ui.select, content='SQLite 저장 문서').click()
+    user.find('백업 문서').click()
+    user.find(kind=ui.button, content='불러오기').click()
+    await user.open('/restore-backup')
+    picker = next(iter(user.find(kind=ui.select, content='SQLite 저장 문서').elements))
+    editor = next(iter(user.find(kind=ui.codemirror).elements))
+    execute = next(iter(user.find(kind=ui.button, content='ZIP 백업 실행').elements))
+    assert picker.value == doc_id
+    assert editor.value == document
+    assert not execute.enabled
+
+
 @pytest.mark.asyncio
 async def test_document_and_work_flow(user, tmp_path, monkeypatch):
     import app.main as main

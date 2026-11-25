@@ -91,7 +91,8 @@ async def test_ui_browser_selection_drives_execution(user, tmp_path, monkeypatch
     db = Database(str(tmp_path / 'ui.db'))
     folder = tmp_path / 'md'
     folder.mkdir()
-    (folder / 'edge.md').write_text(BROWSER_MD)
+    browser_path = folder / 'edge.md'
+    browser_path.write_text(BROWSER_MD)
     db.add_folder(str(folder))
     starts = []
     def start(self, markdown, url, headed, config):
@@ -108,11 +109,44 @@ async def test_ui_browser_selection_drives_execution(user, tmp_path, monkeypatch
     user.find(marker='ui-test-browser-md').click()
     user.find('md / edge.md').click()
     await user.should_see('브라우저 MD 적용 완료 · 실행 시 이 설정을 사용합니다.')
+    browser_path.unlink()
+    await user.open('/browser-md-test')
+    await user.should_see('마지막 브라우저 MD 설정을 복원했습니다.')
+    picker = next(iter(user.find(marker='ui-test-browser-md').elements))
+    assert picker.value == str(browser_path)
     user.find(kind=ui.button, content='테스트 실행').click()
     await user.should_see('실행 준비 중 · test-run', retries=30)
     assert starts[0][1] is True
     assert starts[0][2].timeout == 15000
     assert starts[0][2].viewport.width == 1920
+
+    picker.set_value(None)
+    await user.open('/browser-md-test')
+    await user.should_see('시나리오의 browser 설정을 사용합니다.')
+
+
+async def test_ui_restores_uploaded_browser_override(user, tmp_path):
+    from nicegui import ui
+    from app.common.database import Database
+    from app.pages import ui_test
+
+    db = Database(str(tmp_path / 'ui.db'))
+
+    @ui.page('/uploaded-browser')
+    def page():
+        ui_test.render(db)
+
+    await user.open('/uploaded-browser')
+    upload = next(iter(user.find(kind=ui.upload, content='브라우저 MD 불러오기').elements))
+    await upload.handle_uploads([ui.upload.SmallFileUpload('custom.md', 'text/markdown', b'---\nbrowser: chromium\nheadless: true\n---')])
+    await user.should_see('브라우저 MD 적용 완료 · 실행 시 이 설정을 사용합니다.')
+
+    await user.open('/uploaded-browser')
+    picker = next(iter(user.find(marker='ui-test-browser-md').elements))
+    headed = next(iter(user.find(kind=ui.switch, content='브라우저 표시').elements))
+    assert picker.options[picker.value] == '업로드 · custom.md'
+    assert headed.value is False
+    assert json.loads(db.setting(ui_test.BROWSER_SETTING))['config'] == {'browser': 'chromium', 'headless': True}
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,9 @@ from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 
+LAST_MARKDOWN_DOCUMENT = 'markdown.last_document'
+LAST_BACKUP_DOCUMENT = 'backup.last_document'
+
 
 class Database:
     """One short-lived connection per operation; safe across UI clients."""
@@ -57,6 +60,11 @@ class Database:
         with self.connect() as con:
             return [dict(row) for row in con.execute(f'SELECT * FROM {table} ORDER BY updated_at DESC, id DESC')]
 
+    def document(self, item_id):
+        with self.connect() as con:
+            row = con.execute('SELECT * FROM documents WHERE id=?', (item_id,)).fetchone()
+            return dict(row) if row else None
+
     def save_document(self, title, content, item_id=None):
         if not title.strip():
             raise ValueError('Title is required')
@@ -79,6 +87,9 @@ class Database:
         table = self._table(table)
         with self.connect() as con:
             con.execute(f'DELETE FROM {table} WHERE id=?', (item_id,))
+            if table == 'documents':
+                con.execute('DELETE FROM settings WHERE key IN (?, ?) AND value=?',
+                            (LAST_MARKDOWN_DOCUMENT, LAST_BACKUP_DOCUMENT, f'document:{item_id}'))
 
     def folders(self):
         with self.connect() as con:

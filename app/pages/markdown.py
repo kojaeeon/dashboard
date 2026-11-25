@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from nicegui import ui
-from app.common.database import Database
+from app.common.database import Database, LAST_MARKDOWN_DOCUMENT
 from app.common.markdown_viewer import MarkdownViewer, MermaidRenderer
 from app.common.local_library import local_library
 from app.common.document_index import headings
@@ -53,7 +53,7 @@ def render(db: Database):
                 title.set_value('새 문서')
                 editor.set_value('')
                 preview.refresh()
-            def open_local_file(path):
+            def open_local_file(path, *, remember=True):
                 try:
                     if path.stat().st_size > 2 * 1024 * 1024:
                         raise ValueError('2MB 이하 파일만 지원합니다.')
@@ -68,6 +68,8 @@ def render(db: Database):
                 title.set_value(path.stem)
                 editor.set_value(local.content)
                 preview.refresh()
+                if remember:
+                    db.set_setting(LAST_MARKDOWN_DOCUMENT, f'file:{path}')
 
             local_library(db, open_local_file)
             async def upload(e):
@@ -110,6 +112,7 @@ def render(db: Database):
                             ui.notify('원본 MD 파일을 저장했습니다.', type='positive')
                         else:
                             state['document_id'] = db.save_document(title.value, content, state['document_id'])
+                            db.set_setting(LAST_MARKDOWN_DOCUMENT, f"document:{state['document_id']}")
                             document_list.refresh()
                             ui.notify('문서를 저장했습니다.', type='positive')
                     except (OSError, ValueError, TimeoutError) as exc:
@@ -287,7 +290,7 @@ def render(db: Database):
                 ui.button(icon='vertical_align_bottom', on_click=lambda: jump_document(True)).props(
                     'flat round aria-label="문서 맨 아래로 이동"').tooltip('문서 맨 아래로')
 
-            def open_document(doc):
+            def open_document(doc, *, remember=True):
                 state['local_file'] = None
                 state['generation'] += 1
                 state['document_id'] = doc['id']
@@ -295,6 +298,17 @@ def render(db: Database):
                 title.set_value(doc['title'])
                 editor.set_value(normalize_newlines(doc['content']))
                 preview.refresh()
+                if remember:
+                    db.set_setting(LAST_MARKDOWN_DOCUMENT, f"document:{doc['id']}")
 
+    kind, _, selection = db.setting(LAST_MARKDOWN_DOCUMENT).partition(':')
+    if kind == 'document':
+        document = db.document(selection)
+        if document is not None:
+            open_document(document, remember=False)
+    elif kind == 'file':
+        path = Path(selection)
+        if any(path.parent == Path(folder['path']) for folder in db.folders()):
+            open_local_file(path, remember=False)
 
     return {'app_theme': change_app_theme, 'mermaid_theme': change_theme}

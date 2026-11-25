@@ -3,6 +3,7 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 
 from nicegui import run, ui
+from app.common.database import LAST_BACKUP_DOCUMENT
 from app.common.local_library import local_library, markdown_files
 from app.backup.executor import execute_plan
 from app.backup.manifest import parse_manifest
@@ -50,8 +51,13 @@ def render(db):
             invalidate()
             message.set_text(str(exc))
 
-    def load_file(path):
-        if state['busy']:
+    def refresh_files():
+        options = scan_files()
+        value = file_select.value
+        file_select.set_options(options, value=value if value in options else None)
+
+    def load_file(path, *, remember=True):
+        if state['busy'] or not path:
             return
         try:
             selected = Path(path)
@@ -59,7 +65,10 @@ def render(db):
                 raise ValueError('설정 문서는 2MB 이하로 작성하세요.')
             source.set_value(selected.read_text(encoding='utf-8-sig'))
             base.set_value(str(selected.parent))
+            document_select.set_value(None)
             configure()
+            if remember:
+                db.set_setting(LAST_BACKUP_DOCUMENT, f'file:{path}')
         except (OSError, UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
@@ -69,12 +78,10 @@ def render(db):
         selected = str(path)
         options = scan_files()
         options.setdefault(selected, f'{path.parent.name} / {path.name}')
-        file_select.set_options(options)
         if file_select.value == selected:
             load_file(selected)
         else:
-            # Selection changes use the same loader as the backup MD dropdown.
-            file_select.set_value(selected)
+            file_select.set_options(options, value=selected)
 
     def saved_documents():
         return {doc['id']: doc['title'] for doc in db.list('documents')}
@@ -83,11 +90,10 @@ def render(db):
         options = saved_documents()
         document_select.set_options(options, value=document_select.value if document_select.value in options else None)
 
-    def load_document():
+    def load_document(*, remember=True):
         if state['busy'] or document_select.value is None:
             return
-        document = next((doc for doc in db.list('documents')
-                         if doc['id'] == document_select.value), None)
+        document = db.document(document_select.value)
         if document is None:
             refresh_documents()
             ui.notify('문서가 삭제되었습니다. 다른 문서를 선택하세요.', type='warning')
@@ -98,8 +104,11 @@ def render(db):
             return
         source.set_value(content)
         base.set_value(str(ROOT))
+        file_select.set_value(None)
         configure()
-        ui.notify('저장 문서를 불러왔습니다. 상대 경로가 있다면 설정 기준 폴더를 확인하세요.')
+        if remember:
+            db.set_setting(LAST_BACKUP_DOCUMENT, f"document:{document['id']}")
+            ui.notify('저장 문서를 불러왔습니다. 상대 경로가 있다면 설정 기준 폴더를 확인하세요.')
 
     async def upload(e):
         if state['busy']:
@@ -109,24 +118,35 @@ def render(db):
                 raise ValueError('설정 문서는 2MB 이하로 작성하세요.')
             source.set_value((await e.file.read()).decode('utf-8-sig'))
             base.set_value(str(ROOT))
+            document_select.set_value(None)
+            file_select.set_value(None)
             configure()
             ui.notify('상대 경로가 있다면 설정 기준 폴더를 확인하세요.')
         except (UnicodeError, ValueError) as exc:
             ui.notify(str(exc), type='warning')
 
+    document_options = saved_documents()
+    file_options = scan_files()
+    kind, _, selection = db.setting(LAST_BACKUP_DOCUMENT).partition(':')
+    restored_document = None
+    if kind == 'document':
+        restored_document = next((item_id for item_id in document_options if str(item_id) == selection), None)
+    restored_file = selection if kind == 'file' and selection in file_options else None
+    initial_file = None if restored_document is not None else restored_file or str(SAMPLE_PATH)
+
     with ui.row().classes('w-full items-start gap-6 flex-wrap xl:flex-nowrap'):
         with ui.card().classes('w-full xl:w-1/2 min-w-0'):
             ui.label('프론트메터 설정').classes('text-lg font-semibold')
             with ui.row().classes('w-full items-center'):
-                document_select = ui.select(saved_documents(), label='SQLite 저장 문서',
+                document_select = ui.select(document_options, value=restored_document, label='SQLite 저장 문서',
                                             with_input=True).classes('grow min-w-0')
                 document_load_button = ui.button('불러오기', icon='description', on_click=load_document)
                 document_refresh_button = ui.button(icon='refresh', on_click=refresh_documents).props(
                     'flat round aria-label="저장 문서 목록 갱신"')
             with ui.row().classes('w-full items-center'):
-                file_select = ui.select(scan_files(), value=str(SAMPLE_PATH), label='백업 MD',
+                file_select = ui.select(file_options, value=initial_file, label='백업 MD',
                                         on_change=lambda e: load_file(e.value)).classes('grow min-w-0')
-                ui.button(icon='refresh', on_click=lambda: file_select.set_options(scan_files())).props(
+                ui.button(icon='refresh', on_click=refresh_files).props(
                     'flat round aria-label="백업 설정 파일 목록 갱신"')
             uploader = ui.upload(label='백업 MD 불러오기', on_upload=upload, auto_upload=True,
                                  max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown').classes('w-full')
@@ -274,5 +294,9 @@ def render(db):
     ftp_button.on_click(ftp_copy)
     ui.timer(.3, show_progress)
     configure()
+    if restored_document is not None:
+        load_document(remember=False)
+    elif restored_file:
+        load_file(restored_file, remember=False)
 
 

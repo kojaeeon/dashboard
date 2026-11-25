@@ -1,13 +1,16 @@
 """UI_TEST menu: inspect a Markdown scenario and run its ordered steps."""
+import json
 from pathlib import Path
 
 from nicegui import run, ui
 from app.common.local_library import markdown_files
 from app.testing.runner import ROOT, UITestRun
-from app.testing.scenario import effective_browser, parse_browser_config, parse_scenario, scenario_preview
+from app.testing.scenario import BrowserConfig, effective_browser, parse_browser_config, parse_scenario, scenario_preview
 
 SAMPLE_PATH = ROOT / 'examples' / 'ui-test-smoke.md'
 GUIDE_PATH = ROOT / 'docs' / 'ui-test-actions.md'
+BROWSER_SETTING = 'ui_test.last_browser'
+UPLOADED_BROWSER = 'uploaded'
 
 
 def render(db):
@@ -20,6 +23,15 @@ def render(db):
     browser_override = None
     browser_error = False
     scenario_source = SAMPLE_PATH.read_text(encoding='utf-8')
+    try:
+        saved_browser = json.loads(db.setting(BROWSER_SETTING, 'null') or 'null')
+        if saved_browser is not None:
+            browser_override = BrowserConfig.model_validate(saved_browser['config'])
+            if not isinstance(saved_browser['selection'], str) or not isinstance(saved_browser['label'], str):
+                raise ValueError('Invalid saved browser selection')
+    except (KeyError, TypeError, ValueError):
+        saved_browser = None
+        browser_override = None
 
     def scan_files():
         files = {str(SAMPLE_PATH): '기본 예시 · ui-test-smoke.md'}
@@ -36,6 +48,8 @@ def render(db):
         example = ROOT / 'examples' / 'browser.md'
         if example.exists():
             files[str(example)] = '브라우저 설정 예시 · browser.md'
+        if saved_browser:
+            files.setdefault(saved_browser['selection'], saved_browser['label'])
         return files
 
     def scenario_documents():
@@ -58,42 +72,57 @@ def render(db):
         headed.set_value(not config.headless)
         browser_preview.set_content(config.model_dump_json(indent=2))
 
-    def load_browser_content(content):
-        nonlocal browser_override
-        config = parse_browser_config(content)
+    def apply_browser(config):
+        nonlocal browser_override, browser_error
         browser_override = config
+        browser_error = False
         scenario = validate()
         if scenario:
             sync_browser(scenario)
-        browser_message.set_text('브라우저 MD 적용 완료 · 실행 시 이 설정을 사용합니다.')
+        browser_message.set_text('브라우저 MD 적용 완료 · 실행 시 이 설정을 사용합니다.' if config is not None
+                                 else '시나리오의 browser 설정을 사용합니다.')
+        run_button.enable()
+
+    def remember_browser(config, selection, label):
+        nonlocal saved_browser
+        record = {
+            'selection': selection,
+            'label': label,
+            'config': config.model_dump(exclude_unset=True, mode='json'),
+        }
+        db.set_setting(BROWSER_SETTING, json.dumps(record, ensure_ascii=False))
+        saved_browser = record
+        apply_browser(config)
+
+    def refresh_browser_files():
+        options = browser_files()
+        value = browser_select.value
+        if value is not None and value not in options:
+            options[value] = browser_select.options[value]
+        browser_select.set_options(options, value=value)
 
     def load_browser(path):
-        nonlocal browser_override, browser_error
-        if session.running:
+        nonlocal saved_browser, browser_error
+        if session.running or path == UPLOADED_BROWSER:
             return
         try:
             if not path:
-                browser_override = None
-                browser_error = False
-                scenario = validate()
-                if scenario:
-                    sync_browser(scenario)
-                browser_message.set_text('시나리오의 browser 설정을 사용합니다.')
-                run_button.enable()
+                db.set_setting(BROWSER_SETTING, '')
+                saved_browser = None
+                apply_browser(None)
+                refresh_browser_files()
                 return
             selected = Path(path)
             if selected.stat().st_size > 2 * 1024 * 1024:
                 raise ValueError('2MB 이하 파일만 지원합니다.')
-            load_browser_content(selected.read_text(encoding='utf-8-sig'))
-            browser_error = False
+            config = parse_browser_config(selected.read_text(encoding='utf-8-sig'))
+            remember_browser(config, path, browser_select.options[path])
         except (OSError, UnicodeError, ValueError) as exc:
             # Never silently fall back to a different browser after a failed selection.
             browser_message.set_text(f'브라우저 MD 오류: {exc}')
             browser_error = True
             run_button.disable()
             ui.notify(str(exc), type='warning')
-            return
-        run_button.enable()
 
     async def upload_browser(e):
         nonlocal browser_error
@@ -102,9 +131,12 @@ def render(db):
         try:
             if e.file.size() > 2 * 1024 * 1024:
                 raise ValueError('2MB 이하 파일만 지원합니다.')
-            load_browser_content((await e.file.read()).decode('utf-8-sig'))
-            browser_error = False
-            run_button.enable()
+            content = (await e.file.read()).decode('utf-8-sig')
+            if session.running:
+                return
+            config = parse_browser_config(content)
+            remember_browser(config, UPLOADED_BROWSER, f'업로드 · {e.file.name}')
+            browser_select.set_options(browser_files(), value=UPLOADED_BROWSER)
         except (UnicodeError, ValueError) as exc:
             browser_message.set_text(f'브라우저 MD 오류: {exc}')
             browser_error = True
@@ -192,13 +224,15 @@ def render(db):
             with ui.card().classes('w-full'):
                 ui.label('브라우저 MD 설정').classes('text-lg font-semibold')
                 with ui.row().classes('w-full items-center gap-2'):
-                    browser_select = ui.select(browser_files(), label='브라우저 설정 MD', clearable=True,
+                    browser_select = ui.select(browser_files(), value=saved_browser['selection'] if saved_browser else None,
+                                               label='브라우저 설정 MD', clearable=True,
                                                with_input=True, on_change=lambda e: load_browser(e.value)).classes('grow min-w-0').mark('ui-test-browser-md')
-                    browser_refresh = ui.button(icon='refresh', on_click=lambda: browser_select.set_options(browser_files())).props(
+                    browser_refresh = ui.button(icon='refresh', on_click=refresh_browser_files).props(
                         'flat round aria-label="브라우저 MD 목록 새로고침"')
                 browser_upload = ui.upload(label='브라우저 MD 불러오기', on_upload=upload_browser, auto_upload=True,
                                            max_file_size=2 * 1024 * 1024).props('accept=.md,.markdown').classes('w-full')
-                browser_message = ui.label('시나리오의 browser 설정을 사용합니다.').classes('text-sm whitespace-pre-wrap break-all')
+                browser_message = ui.label('마지막 브라우저 MD 설정을 복원했습니다.' if saved_browser else
+                                           '시나리오의 browser 설정을 사용합니다.').classes('text-sm whitespace-pre-wrap break-all')
                 with ui.expansion('적용할 브라우저 설정', icon='settings').classes('w-full'):
                     browser_preview = ui.code('', language='json').classes('w-full')
             with ui.card().classes('w-full'):
