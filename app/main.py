@@ -43,7 +43,7 @@ def index():
         with ui.tab_panel(code_gen_tab).classes('p-0'):
             code_gen.render(db)
         with ui.tab_panel(query_tab).classes('p-0'):
-            query.render()
+            query.render(db)
         with ui.tab_panel(mind_map_tab).classes('p-0'):
             mind_map.render(db)
 

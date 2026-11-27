@@ -5,6 +5,7 @@ import re
 from contextlib import closing
 from dataclasses import dataclass
 from decimal import Decimal
+from html import escape
 from importlib import import_module
 
 MAX_ROWS = 9_999
@@ -15,6 +16,8 @@ MD_SPECIAL = re.compile(r'[&<>\\|`*_~\[\]]')
 READ_STATEMENTS = {'SELECT', 'WITH', 'VALUES'}
 CTE_STATEMENTS = {'SELECT', 'VALUES', 'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CALL'}
 CSV_FORMULA = re.compile(r'^(?:\s*[=+@-]|[\t\r\n])')
+HTML_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\s]+')
+WINDOWS_DEVICE_NAME = re.compile(r'(?i)(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)')
 
 
 class QueryError(ValueError):
@@ -106,6 +109,13 @@ def _csv_cell(value):
     return value
 
 
+def query_html_filename(title: str) -> str:
+    name = HTML_FILENAME_CHARS.sub('_', title.strip())[:120].strip('._') or '쿼리조회_결과'
+    if WINDOWS_DEVICE_NAME.match(name):
+        name = '_' + name
+    return f'{name}.html'
+
+
 @dataclass
 class QueryResult:
     columns: tuple[str, ...]
@@ -124,6 +134,43 @@ class QueryResult:
         writer.writerow(map(_csv_cell, self.columns))
         writer.writerows(map(_csv_cell, row) for row in self.rows)
         return output.getvalue()
+
+    def html(self, title: str) -> str:
+        headers = ''.join(f'<th scope="col">{escape(name)}</th>' for name in self.columns)
+        rows = []
+        for row in self.rows:
+            cells = ''.join(f'<td>{escape(str(value)) if value is not None else ""}</td>' for value in row)
+            rows.append(f'<tr>{cells}</tr>')
+        body = '\n'.join(rows) or f'<tr><td colspan="{len(self.columns)}">조회 결과가 없습니다.</td></tr>'
+        count = f'{len(self.rows):,}건' + (' · 조회 한도 초과' if self.truncated else '')
+        title = escape(title)
+        return f'''<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+body {{ margin: 1.5rem; color: #172437; font: 14px system-ui, sans-serif; }}
+h1 {{ margin: 0; font-size: 1.5rem; }}
+.table {{ overflow-x: auto; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th, td {{ padding: .4rem .65rem; border: 1px solid #b8c2ce; text-align: left;
+          vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }}
+th {{ background: #eaf0f7; }}
+tbody tr:nth-child(even) {{ background: #f6f8fb; }}
+@media print {{ .table {{ overflow: visible; }} tr {{ break-inside: avoid; }} }}
+</style>
+</head>
+<body>
+<h1>{title}</h1>
+<p>{count}</p>
+<div class="table"><table>
+<thead><tr>{headers}</tr></thead>
+<tbody>{body}</tbody>
+</table></div>
+</body>
+</html>'''
 
 
 def execute_query(sql: str, factory_path: str) -> QueryResult:

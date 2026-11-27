@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import pytest
@@ -295,3 +296,65 @@ async def test_query_menu_displays_grid_and_sends_clipboard_text(user, monkeypat
     user.find('CSV 복사').click()
     await user.should_see('CSV 복사 완료', retries=30)
     assert copied == ['| dup | dup |\n| --- | --- |\n| 한글 | 20 |', 'dup,dup\r\n한글,20\r\n']
+
+
+async def test_query_menu_previews_and_registers_markdown_then_exports_a_selected_query(user, monkeypatch, tmp_path):
+    from app.common.db2_query import QueryResult
+    from app.pages import query
+
+    db = Database(str(tmp_path / 'query.db'))
+    existing = '### 기존 조회\n```sql\nVALUES (1)\n```'
+    db.save_document('기존 문서', existing)
+    new_content = '### 신규 조회\n```sql\nSELECT 2\n```'
+    executed = []
+    downloads = []
+    download_ready = asyncio.Event()
+
+    def execute_query(sql, factory_path):
+        executed.append((sql, factory_path))
+        return QueryResult(('값',), [(2,)], False)
+
+    def download(content, **options):
+        downloads.append((content, options))
+        download_ready.set()
+
+    monkeypatch.setenv('DASHBOARD_DB2_CONNECT', 'local_db2:connect')
+    monkeypatch.setattr(query, 'execute_query', execute_query)
+    monkeypatch.setattr(ui.download, 'content', download)
+
+    @ui.page('/query')
+    def page():
+        query.render(db)
+
+    await user.open('/query')
+    user.find(kind=ui.button, content='저장된 MD 보기').click()
+    preview = next(iter(user.find(kind=ui.textarea, content='MD 본문 미리보기').elements))
+    assert preview.value == existing
+    user.find('이 문서 선택').click()
+    user.find(kind=ui.select, content='쿼리 선택').click()
+    user.find('기존 조회').click()
+    sql = next(iter(user.find(kind=ui.textarea, content='DB2 SQL').elements))
+    assert sql.value == 'VALUES (1)'
+    assert not executed
+
+    user.find(kind=ui.button, content='MD 등록').click()
+    user.find(kind=ui.input, content='문서 제목').type('새 MD 문서')
+    user.find(kind=ui.textarea, content='Markdown 본문').type(new_content)
+    user.find(kind=ui.button, content='MD 저장').click()
+    assert db.list('documents')[0]['content'] == new_content
+    user.find(kind=ui.select, content='쿼리 선택').click()
+    user.find('신규 조회').click()
+    assert sql.value == 'SELECT 2'
+    assert not executed
+    user.find('조회 실행').click()
+    await user.should_see('1건', retries=30)
+    assert executed == [('SELECT 2', 'local_db2:connect')]
+
+    user.find('HTML 다운로드').click()
+    await asyncio.wait_for(download_ready.wait(), timeout=3)
+    assert len(downloads) == 1
+    html, options = downloads[0]
+    assert '<h1>신규 조회</h1>' in html
+    assert '<td>2</td>' in html
+    assert 'SELECT 2' not in html
+    assert options == {'filename': '신규_조회.html', 'media_type': 'text/html; charset=utf-8'}
