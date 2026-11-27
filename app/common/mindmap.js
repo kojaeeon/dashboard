@@ -4,6 +4,15 @@ const clone = x => JSON.parse(JSON.stringify(x));
 const uid = () => 'n_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2,'0')).join('');
 // Shared by editor instances and retained when a different map is loaded.
 let nodeClipboardText = '';
+// Preserve the rendered layout without copying every browser-default property into the HTML.
+const htmlExportStyles = [
+ 'display','position','top','right','bottom','left','z-index','width','height','min-width','max-width','min-height','max-height',
+ 'box-sizing','margin','padding','border','border-radius','background-color','box-shadow','outline','outline-offset','overflow',
+ 'align-items','justify-content','flex-direction','flex-wrap','flex-shrink','flex-grow','flex-basis','gap','vertical-align',
+ 'color','font-family','font-size','font-style','font-weight','line-height','letter-spacing','direction','text-align',
+ 'white-space','overflow-wrap','word-break','hyphens','visibility','opacity','transform','transform-origin','isolation',
+ 'pointer-events','fill','stroke','stroke-width','stroke-linejoin','stroke-linecap','stroke-dasharray','stroke-opacity',
+];
 export default {
  props: {graph:Object, types:Array, resourcePath:String},
  emits:['save_request','type_save','load_error'],
@@ -39,36 +48,76 @@ export default {
  data(){return {ready:false,dirty:false,selected:null,searchQuery:'',searchIndex:-1,searchOpen:false,highlightRelations:false,summaryId:null,summaryForm:{},summaries:[],form:{},custom:false,style:{},localTypes:clone(this.types),panel:'node',inspectorCollapsed:false,panelId:uid(),direction:1,percent:100,history:[],cursor:-1,nodes:[],relations:[],message:'',typeForm:{name:'',style:{background:'#222b24',color:'#eee9de',border_color:'#b89a60',font_size:15,shape:'rounded',icon:'◇'}},relation:{target:'',kind:'참조',label:'',color:'#b89a60',dashed:true,bidirectional:false}}},
  computed:{searchMatches(){return this.matchNodes(this.nodes,this.searchQuery)}},
  methods:{
+ async exportFrame(properties){
+  if(!this.ready)throw new Error('마인드맵 로딩이 끝난 뒤 다시 시도하세요.');
+  await document.fonts.ready;
+  await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+  const map=this.mind.map,origin=map.getBoundingClientRect(),scale=this.mind.scaleVal;
+  const boxes=Array.from(map.querySelectorAll('.me-tpc,.svg-label,svg path'))
+   .filter(el=>!el.closest('defs,.linkcontroller')&&getComputedStyle(el).visibility!=='hidden')
+   .map(el=>el.getBoundingClientRect()).filter(r=>r.width||r.height);
+  if(!boxes.length)throw new Error('내보낼 노드가 없습니다.');
+  const pad=32,left=(Math.min(...boxes.map(r=>r.left))-origin.left)/scale-pad;
+  const top=(Math.min(...boxes.map(r=>r.top))-origin.top)/scale-pad;
+  const width=Math.ceil((Math.max(...boxes.map(r=>r.right))-origin.left)/scale-left+pad);
+  const height=Math.ceil((Math.max(...boxes.map(r=>r.bottom))-origin.top)/scale-top+pad);
+  // Inline computed styles so the exported layout needs no external CSS.
+  const copy=map.cloneNode(true),originals=[map,...map.querySelectorAll('*')],copies=[copy,...copy.querySelectorAll('*')];
+  originals.forEach((el,i)=>{
+   const style=getComputedStyle(el),target=copies[i];
+   target.removeAttribute('style');
+   for(const property of properties??style)target.style.setProperty(property,style.getPropertyValue(property));
+   target.style.animation='none';target.style.transition='none';
+  });
+  copy.querySelectorAll('.linkcontroller,.circle,.mm-relation-overlay,me-epd').forEach(el=>el.remove());
+  copy.querySelectorAll('.selected,.mm-focus-node,.mm-related').forEach(el=>{el.style.outline='none';el.style.boxShadow='none'});
+  // Export the complete map without temporary selection/relation dimming.
+  copy.querySelectorAll('.mm-muted,.lines,.subLines,.summary,.svg-label').forEach(el=>el.style.opacity='1');
+  for(const property of ['inset-block-start','inset-block-end','inset-inline-start','inset-inline-end']){
+   copy.style.removeProperty(property);
+  }
+  Object.assign(copy.style,{position:'absolute',left:`${-left}px`,top:`${-top}px`,right:'auto',bottom:'auto',margin:'0',transform:'none',transformOrigin:'0 0',overflow:'visible'});
+  const wrapper=document.createElement('div');wrapper.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+  Object.assign(wrapper.style,{position:'relative',width:`${width}px`,height:`${height}px`,overflow:'hidden',background:'#18221e'});
+  wrapper.appendChild(copy);
+  return {wrapper,width,height};
+ },
+ async exportHtml(filename='mindmap.html',title='마인드맵'){
+  try{
+   const {wrapper}=await this.exportFrame(htmlExportStyles);
+   const {edges,summaries}=this.getSnapshot().graph;
+   const labels=new Map([
+    ...edges.filter(edge=>!edge.tree).map(edge=>[`a-${edge.id}`,edge.label]),
+    ...summaries.map(summary=>[`s-${summary.id}`,summary.label]),
+   ]);
+   // Publish the visible labels as text and drop the editor's temporary controls.
+   wrapper.querySelectorAll('[contenteditable],.insert-preview').forEach(el=>el.remove());
+   for(const el of wrapper.querySelectorAll('.svg-label')){
+    el.textContent=labels.get(el.dataset.svgId)??el.textContent;
+   }
+   for(const el of wrapper.querySelectorAll('.me-tpc,.me-tpc .text,.me-tpc .icons,.me-tpc .icons *,.svg-label')){
+    Object.assign(el.style,{userSelect:'text',webkitUserSelect:'text',pointerEvents:'auto',cursor:'text',opacity:'1'});
+   }
+   const heading=document.createElement('title');
+   heading.textContent=title;
+   const html=`<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+${heading.outerHTML}
+<style>body{margin:0;background:#18221e}main{width:max-content;margin-inline:auto}</style>
+</head>
+<body><main>${wrapper.outerHTML}</main></body>
+</html>`;
+   this.downloadExport(new Blob([html],{type:'text/html;charset=utf-8'}),filename);
+   return {ok:true};
+  }catch(e){return {ok:false,error:String(e.message||e)}}
+ },
  async exportPng(filename='mindmap.png'){
   try{
-   if(!this.ready)throw new Error('마인드맵 로딩이 끝난 뒤 다시 시도하세요.');
-   await document.fonts.ready;
-   await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-   const map=this.mind.map,origin=map.getBoundingClientRect(),scale=this.mind.scaleVal;
-   const boxes=Array.from(map.querySelectorAll('.me-tpc,.svg-label,svg path'))
-    .filter(el=>!el.closest('defs,.linkcontroller')&&getComputedStyle(el).visibility!=='hidden')
-    .map(el=>el.getBoundingClientRect()).filter(r=>r.width||r.height);
-   if(!boxes.length)throw new Error('내보낼 노드가 없습니다.');
-   const pad=32,left=(Math.min(...boxes.map(r=>r.left))-origin.left)/scale-pad;
-   const top=(Math.min(...boxes.map(r=>r.top))-origin.top)/scale-pad;
-   const width=Math.ceil((Math.max(...boxes.map(r=>r.right))-origin.left)/scale-left+pad);
-   const height=Math.ceil((Math.max(...boxes.map(r=>r.bottom))-origin.top)/scale-top+pad);
-   // Inline styles so the image also works without network access or external CSS.
-   const copy=map.cloneNode(true),originals=[map,...map.querySelectorAll('*')],copies=[copy,...copy.querySelectorAll('*')];
-   originals.forEach((el,i)=>{
-    const style=getComputedStyle(el),target=copies[i];
-    target.removeAttribute('style');
-    for(const property of style)target.style.setProperty(property,style.getPropertyValue(property));
-    target.style.animation='none';target.style.transition='none';
-   });
-   copy.querySelectorAll('.linkcontroller,.circle,.mm-relation-overlay,me-epd').forEach(el=>el.remove());
-   copy.querySelectorAll('.selected,.mm-focus-node,.mm-related').forEach(el=>{el.style.outline='none';el.style.boxShadow='none'});
-   // Export the complete map without temporary selection/relation dimming.
-   copy.querySelectorAll('.mm-muted,.lines,.subLines,.summary,.svg-label').forEach(el=>el.style.opacity='1');
-   Object.assign(copy.style,{position:'absolute',left:`${-left}px`,top:`${-top}px`,margin:'0',transform:'none',transformOrigin:'0 0',overflow:'visible'});
-   const wrapper=document.createElement('div');wrapper.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
-   Object.assign(wrapper.style,{position:'relative',width:`${width}px`,height:`${height}px`,overflow:'hidden',background:'#18221e'});
-   wrapper.appendChild(copy);
+   const {wrapper,width,height}=await this.exportFrame();
    const markup=new XMLSerializer().serializeToString(wrapper);
    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
    const img=new Image();
@@ -80,11 +129,14 @@ export default {
    ctx.drawImage(img,0,0,canvas.width,canvas.height);
    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
    if(!blob)throw new Error('PNG 파일을 만들 수 없습니다.');
-   const url=URL.createObjectURL(blob),link=document.createElement('a');
-   link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
-   setTimeout(()=>URL.revokeObjectURL(url),60000);
+   this.downloadExport(blob,filename);
    return {ok:true};
   }catch(e){return {ok:false,error:String(e.message||e)}}
+ },
+ downloadExport(blob,filename){
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=filename;document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
  },
  async toggleInspector(){
   const before=this.mind?.container.getBoundingClientRect();this.inspectorCollapsed=!this.inspectorCollapsed;

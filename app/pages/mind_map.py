@@ -141,31 +141,52 @@ def render(db):
 
     async def export_dialog():
         snapshot = await editor.run_method('getSnapshot')
+        if not snapshot or not snapshot.get('graph'):
+            ui.notify('마인드맵 로딩이 끝난 뒤 다시 시도하세요.', type='warning')
+            return
         with ui.dialog() as dialog, ui.card().classes('w-[850px] max-w-full'):
             ui.label('마인드맵 내보내기').classes('text-lg')
-            kind = ui.select({'dot': 'DOT', 'flowchart': 'Mermaid flowchart', 'mindmap': 'Mermaid mindmap', 'json': 'KJA JSON', 'png': 'PNG 이미지'}, value='dot', label='출력 형식')
+            rendered_formats = {
+                'html': ('exportHtml', '읽기 전용 HTML'),
+                'png': ('exportPng', 'PNG 이미지'),
+            }
+            kind = ui.select({
+                'dot': 'DOT', 'flowchart': 'Mermaid flowchart', 'mindmap': 'Mermaid mindmap',
+                'json': 'KJA JSON', **{key: label for key, (_, label) in rendered_formats.items()},
+            }, value='dot', label='출력 형식')
             source = ui.textarea('출력 코드', value=export_graph(snapshot['graph'], 'dot')).props('readonly outlined').classes('w-full').style('min-height:330px')
-            hint = ui.label('KJA 메타데이터 주석으로 유형·스타일·관계를 보존합니다. Mermaid mindmap의 추가 관계는 다른 뷰어에 표시되지 않습니다.').classes('text-xs opacity-60')
+            code_hint = 'KJA 메타데이터 주석으로 유형·스타일·관계를 보존합니다. Mermaid mindmap의 추가 관계는 다른 뷰어에 표시되지 않습니다.'
+            hint = ui.label(code_hint).classes('text-xs opacity-60')
             def change_format(e):
-                is_png = e.value == 'png'
-                source.set_visibility(not is_png)
-                copy_button.set_visibility(not is_png)
-                hint.set_text('현재 펼침 상태의 전체 맵을 PNG로 저장합니다. 화면 밖 노드·연결선도 포함합니다.' if is_png else 'KJA 메타데이터 주석으로 유형·스타일·관계를 보존합니다. Mermaid mindmap의 추가 관계는 다른 뷰어에 표시되지 않습니다.')
-                if not is_png:
+                is_code = e.value not in rendered_formats
+                source.set_visibility(is_code)
+                copy_button.set_visibility(is_code)
+                hint.set_text({
+                    'html': '현재 펼침 상태의 맵을 HTML로 저장합니다. 파일을 열어 텍스트를 검색하거나 복사할 수 있습니다.',
+                    'png': '현재 펼침 상태의 전체 맵을 PNG로 저장합니다. 화면 밖 노드·연결선도 포함합니다.',
+                }.get(e.value, code_hint))
+                if is_code:
                     source.set_value(export_graph(snapshot['graph'], e.value))
             kind.on_value_change(change_format)
             async def download():
-                if kind.value != 'png':
-                    ui.download.content(source.value, f'mindmap.{"dot" if kind.value == "dot" else "json" if kind.value == "json" else "mmd"}')
+                output = kind.value
+                if output not in rendered_formats:
+                    extension = {'dot': 'dot', 'json': 'json'}.get(output, 'mmd')
+                    ui.download.content(source.value, f'mindmap.{extension}')
                     return
+                method, label = rendered_formats[output]
                 download_button.disable()
                 try:
+                    map_title = (title.value or '').strip() or '마인드맵'
                     filename = ''.join('_' if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in (title.value or 'mindmap')).strip(' .') or 'mindmap'
-                    result = await editor.run_method('exportPng', f'{filename}.png', timeout=60)
+                    args = [f'{filename}.{output}']
+                    if output == 'html':
+                        args.append(map_title)
+                    result = await editor.run_method(method, *args, timeout=60)
                     if not result or not result.get('ok'):
-                        ui.notify((result or {}).get('error', 'PNG 내보내기에 실패했습니다.'), type='negative')
+                        ui.notify((result or {}).get('error', f'{label} 내보내기에 실패했습니다.'), type='negative')
                 except TimeoutError:
-                    ui.notify('PNG 변환 시간이 초과되었습니다. 다시 시도하세요.', type='negative')
+                    ui.notify(f'{label} 생성 시간이 초과되었습니다. 다시 시도하세요.', type='negative')
                 finally:
                     download_button.enable()
             with ui.row():
